@@ -7,19 +7,15 @@ import { Eye, EyeOff, ArrowRight, Mail, Lock, User, Users } from "lucide-react";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import { useDeviceFingerprint } from "@/lib/hooks/useDeviceFingerprint";
 
 const isDev = process.env.NODE_ENV === 'development';
-
-// Separate component for search params handling
-function ReferralHandler() {
-  const searchParams = useSearchParams();
-  return searchParams.get('ref') || null;
-}
 
 export default function RegisterPage() {
   const router = useRouter();
   const supabase = createClient();
   const captchaRef = useRef<HCaptcha>(null);
+  const { fingerprint } = useDeviceFingerprint();
 
   const [showPassword, setShowPassword] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
@@ -30,12 +26,6 @@ export default function RegisterPage() {
     email: "",
     password: "",
   });
-
-  // Get referral code inside Suspense
-  const [referralCode, setReferralCode] = useState<string | null>(null);
-
-  // We'll get referral code from search params in a separate effect
-  // or we can wrap the whole component in Suspense
 
   const resetCaptcha = () => {
     captchaRef.current?.resetCaptcha();
@@ -80,7 +70,6 @@ export default function RegisterPage() {
         }
       }
 
-      // Get referral code from URL
       const refCode = new URLSearchParams(window.location.search).get('ref');
 
       const { data, error } = await supabase.auth.signUp({
@@ -109,6 +98,22 @@ export default function RegisterPage() {
       }
 
       if (data.user) {
+        // ✅ Save device fingerprint after registration
+        if (fingerprint) {
+          try {
+            await fetch("/api/security/device", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fingerprint,
+                userAgent: navigator.userAgent,
+              }),
+            });
+          } catch (err) {
+            console.log("Device fingerprint save failed:", err);
+          }
+        }
+
         if (!data.session) {
           toast.success("✅ Account created! Check your email to verify your account.", {
             duration: 8000,
