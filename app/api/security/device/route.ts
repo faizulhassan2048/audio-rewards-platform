@@ -3,29 +3,37 @@ import { createClient } from '@/lib/supabase/server';
 
 export async function POST(req: Request) {
   try {
+    console.log('🔍 Device API called');
+    
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
+    console.log('👤 User:', user?.id);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { fingerprint, userAgent } = await req.json();
+    console.log('🖐️ Fingerprint:', fingerprint);
 
     if (!fingerprint) {
       return NextResponse.json({ error: 'Fingerprint required' }, { status: 400 });
     }
 
-    // ✅ Check if fingerprint already exists
+    // Check if fingerprint already exists
     const { data: existing } = await supabase
       .from('device_fingerprints')
       .select('user_id')
       .eq('fingerprint', fingerprint)
       .maybeSingle();
 
+    console.log('📊 Existing:', existing);
+
     if (existing) {
-      // ✅ If fingerprint belongs to different user → Block
+      // If fingerprint belongs to different user → Block
       if (existing.user_id !== user.id) {
+        console.log('🚫 Duplicate device detected!');
+        
         // Log the attempt
         await supabase
           .from('security_logs')
@@ -47,7 +55,7 @@ export async function POST(req: Request) {
         }, { status: 403 });
       }
       
-      // ✅ If same user → Update existing record
+      // If same user → Update existing record
       const { data, error } = await supabase
         .from('device_fingerprints')
         .update({
@@ -60,6 +68,7 @@ export async function POST(req: Request) {
         .single();
 
       if (error) {
+        console.error('❌ Update error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
@@ -70,7 +79,9 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ New fingerprint → Save
+    // New fingerprint → Save
+    console.log('✅ New fingerprint, saving...');
+    
     const { data, error } = await supabase
       .from('device_fingerprints')
       .insert({
@@ -83,9 +94,11 @@ export async function POST(req: Request) {
       .single();
 
     if (error) {
+      console.error('❌ Insert error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    console.log('✅ Device registered successfully');
     return NextResponse.json({ 
       success: true, 
       device: data,
@@ -93,7 +106,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error('Device fingerprint error:', error);
+    console.error('❌ Device fingerprint error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
