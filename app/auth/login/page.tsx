@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, ArrowRight, Mail, Lock } from "lucide-react";
@@ -11,18 +11,9 @@ import { useDeviceFingerprint } from "@/lib/hooks/useDeviceFingerprint";
 
 const isDev = process.env.NODE_ENV === 'development';
 
-export default function LoginPage() {
-  const router = useRouter();
+// Separate component for search params handling
+function SearchParamsHandler() {
   const searchParams = useSearchParams();
-  const supabase = createClient();
-  const captchaRef = useRef<HCaptcha>(null);
-  const { fingerprint } = useDeviceFingerprint();
-
-  const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("registered") === "true") {
@@ -32,6 +23,21 @@ export default function LoginPage() {
       toast.success("Email verified! You can now log in.", { duration: 4000 });
     }
   }, [searchParams]);
+
+  return null;
+}
+
+export default function LoginPage() {
+  const router = useRouter();
+  const supabase = createClient();
+  const captchaRef = useRef<HCaptcha>(null);
+  const { fingerprint } = useDeviceFingerprint();
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const resetCaptcha = () => {
     captchaRef.current?.resetCaptcha();
@@ -49,7 +55,6 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Captcha verify — dev mein skip
       if (!isDev) {
         const captchaRes = await fetch("/api/auth/verify-captcha", {
           method: "POST",
@@ -65,7 +70,6 @@ export default function LoginPage() {
         }
       }
 
-      // Supabase login
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -84,7 +88,6 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // ✅ Save device fingerprint after login
         if (fingerprint) {
           try {
             await fetch("/api/security/device", {
@@ -115,6 +118,10 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-purple-50/30 p-4">
+      <Suspense fallback={null}>
+        <SearchParamsHandler />
+      </Suspense>
+
       <div className="w-full max-w-md">
         <Link
           href="/"
@@ -134,7 +141,6 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email */}
             <div className="group">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
               <div className="relative">
@@ -151,7 +157,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Password */}
             <div className="group">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
               <div className="relative">
@@ -175,7 +180,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* hCaptcha — sirf production mein */}
             {!isDev && (
               <div className="flex justify-center py-2">
                 <HCaptcha

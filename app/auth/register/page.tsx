@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from "react";
+import { useState, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, ArrowRight, Mail, Lock, User, Users } from "lucide-react";
@@ -10,10 +10,14 @@ import { toast } from "sonner";
 
 const isDev = process.env.NODE_ENV === 'development';
 
+// Separate component for search params handling
+function ReferralHandler() {
+  const searchParams = useSearchParams();
+  return searchParams.get('ref') || null;
+}
+
 export default function RegisterPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const referralCode = searchParams.get('ref');
   const supabase = createClient();
   const captchaRef = useRef<HCaptcha>(null);
 
@@ -26,6 +30,12 @@ export default function RegisterPage() {
     email: "",
     password: "",
   });
+
+  // Get referral code inside Suspense
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+
+  // We'll get referral code from search params in a separate effect
+  // or we can wrap the whole component in Suspense
 
   const resetCaptcha = () => {
     captchaRef.current?.resetCaptcha();
@@ -55,7 +65,6 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      // Step 1: Captcha verify (dev mein skip)
       if (!isDev) {
         const captchaRes = await fetch("/api/auth/verify-captcha", {
           method: "POST",
@@ -71,7 +80,9 @@ export default function RegisterPage() {
         }
       }
 
-      // Step 2: Supabase signUp with referral code
+      // Get referral code from URL
+      const refCode = new URLSearchParams(window.location.search).get('ref');
+
       const { data, error } = await supabase.auth.signUp({
         email: form.email.trim(),
         password: form.password,
@@ -80,7 +91,7 @@ export default function RegisterPage() {
           data: {
             full_name: form.fullName.trim(),
             username: username,
-            referral_code: referralCode,
+            referral_code: refCode || null,
           },
         },
       });
@@ -140,7 +151,6 @@ export default function RegisterPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Full Name */}
             <div className="group">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Name</label>
               <div className="relative">
@@ -157,7 +167,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Username */}
             <div className="group">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Username</label>
               <div className="relative">
@@ -177,7 +186,6 @@ export default function RegisterPage() {
               <p className="text-xs text-gray-400 mt-1 ml-1">3-20 characters, letters, numbers, underscore only</p>
             </div>
 
-            {/* Email */}
             <div className="group">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
               <div className="relative">
@@ -194,7 +202,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Password */}
             <div className="group">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
               <div className="relative">
@@ -219,7 +226,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* hCaptcha — sirf production mein dikhao */}
             {!isDev && (
               <div className="flex justify-center py-2">
                 <HCaptcha
