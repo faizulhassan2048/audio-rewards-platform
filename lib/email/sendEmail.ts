@@ -1,0 +1,25 @@
+export async function sendEmail(to: string, subject: string, html: string) {
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      },
+      body: JSON.stringify({
+        from: `YouTask <${process.env.FROM_EMAIL || 'noreply@youtask.com'}>`,
+        to,
+        subject,
+        html,
+      }),
+    });
+
+    if (!res.ok) {
+      console.error('Email send failed:', await res.text());
+    }
+    return res.ok;
+  } catch (error) {
+    console.error('Email error:', error);
+    return false;
+  }
+}

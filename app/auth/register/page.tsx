@@ -2,6 +2,7 @@
 
 import { useState, useRef, Suspense } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, ArrowRight, Mail, Lock, User, Users } from "lucide-react";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
@@ -86,14 +87,24 @@ export default function RegisterPage() {
       });
 
       if (error) {
+        // ✅ Detailed error messages
         if (error.message.includes("already registered") || error.message.includes("already been registered")) {
           toast.error("Email already registered. Please login instead.");
         } else if (error.message.includes("Password")) {
-          toast.error("Password is too weak. Use at least 6 characters.");
+          toast.error("Password is too weak. Use at least 6 characters with numbers and letters.");
+        } else if (error.message.includes("Username")) {
+          toast.error("Username already taken. Please choose another.");
+        } else if (error.message.includes("Network") || error.message.includes("fetch")) {
+          toast.error("Network error. Please check your internet connection.");
+        } else if (error.message.includes("timeout")) {
+          toast.error("Request timeout. Please try again.");
+        } else if (error.message.includes("invalid")) {
+          toast.error("Please enter a valid email address.");
         } else {
           toast.error(error.message);
         }
         resetCaptcha();
+        setLoading(false);
         return;
       }
 
@@ -126,9 +137,15 @@ export default function RegisterPage() {
         }
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Register error:", err);
-      toast.error("Something went wrong. Please try again.");
+      if (err.message?.includes("Network") || err.message?.includes("fetch")) {
+        toast.error("Network error. Please check your internet connection.");
+      } else if (err.message?.includes("timeout")) {
+        toast.error("Request timeout. Please try again.");
+      } else {
+        toast.error("Something went wrong. Please try again later.");
+      }
     } finally {
       setLoading(false);
       resetCaptcha();
@@ -147,6 +164,18 @@ export default function RegisterPage() {
         </Link>
 
         <div className="bg-white rounded-3xl shadow-2xl p-8 border border-gray-100/50">
+          {/* Header with Logo */}
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <Image 
+              src="/logo.png" 
+              alt="YouTask" 
+              width={40} 
+              height={40}
+              className="rounded-lg"
+            />
+            <span className="text-2xl font-bold text-purple-600">YouTask</span>
+          </div>
+
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-gradient-to-br from-purple-600 to-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-purple-500/25">
               <span className="text-2xl">🚀</span>

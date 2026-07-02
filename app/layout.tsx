@@ -7,6 +7,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "YouTask",
   description: "Earn rewards by listening to audio",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default function RootLayout({

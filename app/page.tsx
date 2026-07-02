@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Home() {
   return (
@@ -6,7 +7,16 @@ export default function Home() {
       {/* Navbar */}
       <nav className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-purple-600">YouTask</h1>
+          <Link href="/" className="flex items-center gap-2">
+            <Image 
+              src="/logo.png" 
+              alt="YouTask" 
+              width={40} 
+              height={40}
+              className="rounded-lg"
+            />
+            <span className="text-2xl font-bold text-purple-600">YouTask</span>
+          </Link>
           <div className="space-x-4">
             <Link href="/auth/login" className="text-gray-600 hover:text-gray-900">
               Login

@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import Link from 'next/link'
+import Image from 'next/image'
 import {
   Headphones, Wallet, LogOut, TrendingUp, Gift,
   Clock, CheckCircle, Circle, ArrowRight, Star,
-  Zap, Flame, Calendar, Trophy
+  Zap, Flame, Calendar, Trophy, Home, Users, User
 } from 'lucide-react'
 
 interface DashboardData {
@@ -136,7 +137,6 @@ export default function DashboardPage() {
           coin_balance: result.new_balance,
         } : prev)
 
-        // Coin animation
         setShowCoinAnim(true)
         setTimeout(() => setShowCoinAnim(false), 2000)
 
@@ -178,9 +178,13 @@ export default function DashboardPage() {
       <header className="bg-white shadow-sm border-b sticky top-0 z-50">
         <div className="max-w-4xl mx-auto px-4 h-16 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-r from-purple-600 to-purple-400 rounded-full flex items-center justify-center text-white font-bold text-lg">
-              {data?.full_name?.charAt(0)?.toUpperCase() || 'U'}
-            </div>
+            <Image 
+              src="/logo.png" 
+              alt="YouTask" 
+              width={32} 
+              height={32}
+              className="rounded-lg"
+            />
             <div>
               <p className="font-semibold text-gray-900 leading-tight">{data?.full_name || data?.username}</p>
               <p className="text-xs text-gray-400">@{data?.username}</p>
@@ -236,7 +240,6 @@ export default function DashboardPage() {
                 <h3 className="font-bold text-gray-800">Daily Check-in</h3>
               </div>
 
-              {/* Streak counter */}
               <div className="flex items-center gap-3 mb-3">
                 <div className="flex items-center gap-1.5">
                   <span className="text-2xl font-bold text-orange-500">{streak?.current_streak || 0}</span>
@@ -249,7 +252,6 @@ export default function DashboardPage() {
                 ) : null}
               </div>
 
-              {/* Milestone progress */}
               <div className="flex gap-2 mb-3">
                 {[
                   { day: 7, reward: 50, icon: '🌟' },
@@ -275,7 +277,6 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            {/* Claim button */}
             <button
               onClick={handleCheckin}
               disabled={streak?.claimed || checkinLoading}
@@ -413,8 +414,38 @@ export default function DashboardPage() {
 
       </div>
 
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg z-50">
+        <div className="flex justify-around items-center h-16 max-w-4xl mx-auto">
+          <Link href="/dashboard" className="flex-1">
+            <div className="flex flex-col items-center py-1 text-purple-600">
+              <Home className="w-6 h-6" />
+              <span className="text-xs font-medium">Home</span>
+            </div>
+          </Link>
+          <Link href="/audio" className="flex-1">
+            <div className="flex flex-col items-center py-1 text-gray-400 hover:text-purple-600 transition">
+              <Headphones className="w-6 h-6" />
+              <span className="text-xs font-medium">Tasks</span>
+            </div>
+          </Link>
+          <Link href="/referral" className="flex-1">
+            <div className="flex flex-col items-center py-1 text-gray-400 hover:text-purple-600 transition">
+              <Users className="w-6 h-6" />
+              <span className="text-xs font-medium">Referrals</span>
+            </div>
+          </Link>
+          <Link href="/profile" className="flex-1">
+            <div className="flex flex-col items-center py-1 text-gray-400 hover:text-purple-600 transition">
+              <User className="w-6 h-6" />
+              <span className="text-xs font-medium">Profile</span>
+            </div>
+          </Link>
+        </div>
+      </nav>
+
       {/* FAB */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50">
         <Link href="/audio"
           className="flex items-center gap-2 px-7 py-3.5 bg-gradient-to-r from-purple-600 to-purple-400 text-white rounded-full shadow-xl shadow-purple-300 hover:shadow-2xl hover:scale-105 transition-all font-semibold text-sm">
           <Headphones className="w-5 h-5" />
