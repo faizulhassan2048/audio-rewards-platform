@@ -157,6 +157,8 @@ export default function LoginPage() {
               width={40} 
               height={40}
               className="rounded-lg"
+              style={{ width: 'auto', height: 'auto' }}
+              priority
             />
             <span className="text-2xl font-bold text-purple-600">YouTask</span>
           </div>

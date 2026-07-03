@@ -91,7 +91,6 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
 
-      // ✅ Add AbortController for timeout
       abortControllerRef.current = new AbortController()
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 8000)
 
@@ -215,6 +214,7 @@ export default function DashboardPage() {
               width={32} 
               height={32}
               className="rounded-lg"
+              style={{ width: 'auto', height: 'auto' }}
               priority
             />
             <div>
