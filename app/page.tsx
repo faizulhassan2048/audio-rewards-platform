@@ -1,7 +1,13 @@
+'use client';
+
 import Link from "next/link";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 
 export default function Home() {
+  const searchParams = useSearchParams();
+  const refCode = searchParams.get('ref');
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-purple-50 to-white">
       {/* Navbar */}
@@ -41,7 +47,7 @@ export default function Home() {
         <p className="text-xl text-gray-600 mb-8">
           Earn real rewards by listening to audio content.
         </p>
-        <Link href="/auth/register">
+        <Link href={`/auth/register${refCode ? `?ref=${refCode}` : ''}`}>
           <button className="px-8 py-4 bg-purple-600 text-white rounded-lg text-lg hover:bg-purple-700">
             Get Started Free
           </button>

@@ -87,21 +87,27 @@ export default function RegisterPage() {
       });
 
       if (error) {
-        // ✅ Detailed error messages
-        if (error.message.includes("already registered") || error.message.includes("already been registered")) {
-          toast.error("Email already registered. Please login instead.");
-        } else if (error.message.includes("Password")) {
-          toast.error("Password is too weak. Use at least 6 characters with numbers and letters.");
-        } else if (error.message.includes("Username")) {
-          toast.error("Username already taken. Please choose another.");
-        } else if (error.message.includes("Network") || error.message.includes("fetch")) {
-          toast.error("Network error. Please check your internet connection.");
-        } else if (error.message.includes("timeout")) {
-          toast.error("Request timeout. Please try again.");
-        } else if (error.message.includes("invalid")) {
-          toast.error("Please enter a valid email address.");
+        // ✅ Detailed error messages with string conversion
+        let errorMessage = error.message || 'Something went wrong';
+        
+        if (typeof error === 'object' && error !== null) {
+          errorMessage = error.message || JSON.stringify(error);
+        }
+
+        if (errorMessage.includes("already registered") || errorMessage.includes("already been registered")) {
+          toast.error("❌ Email already registered. Please login instead.");
+        } else if (errorMessage.includes("Password")) {
+          toast.error("❌ Password is too weak. Use at least 6 characters with numbers and letters.");
+        } else if (errorMessage.includes("Username") || errorMessage.includes("username")) {
+          toast.error("❌ Username already taken. Please choose another.");
+        } else if (errorMessage.includes("Network") || errorMessage.includes("fetch")) {
+          toast.error("❌ Network error. Please check your internet connection.");
+        } else if (errorMessage.includes("timeout")) {
+          toast.error("❌ Request timeout. Please try again.");
+        } else if (errorMessage.includes("invalid")) {
+          toast.error("❌ Please enter a valid email address.");
         } else {
-          toast.error(error.message);
+          toast.error("❌ " + errorMessage);
         }
         resetCaptcha();
         setLoading(false);
@@ -139,12 +145,13 @@ export default function RegisterPage() {
 
     } catch (err: any) {
       console.error("Register error:", err);
-      if (err.message?.includes("Network") || err.message?.includes("fetch")) {
-        toast.error("Network error. Please check your internet connection.");
-      } else if (err.message?.includes("timeout")) {
-        toast.error("Request timeout. Please try again.");
+      const errorMsg = err.message || 'Something went wrong';
+      if (errorMsg.includes("Network") || errorMsg.includes("fetch")) {
+        toast.error("❌ Network error. Please check your internet connection.");
+      } else if (errorMsg.includes("timeout")) {
+        toast.error("❌ Request timeout. Please try again.");
       } else {
-        toast.error("Something went wrong. Please try again later.");
+        toast.error("❌ " + errorMsg);
       }
     } finally {
       setLoading(false);
