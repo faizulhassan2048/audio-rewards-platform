@@ -19,7 +19,9 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url)
     const userId = searchParams.get('user_id')
-    if (!userId) return NextResponse.json({ error: 'user_id required' }, { status: 400 })
+    if (!userId) {
+      return NextResponse.json({ error: 'user_id required' }, { status: 400 })
+    }
 
     const today = new Date().toISOString().split('T')[0]
 
@@ -31,14 +33,21 @@ export async function GET(req: Request) {
 
     const claimed = streak?.last_checkin_date === today
 
-    return NextResponse.json({
-      claimed,
-      current_streak: streak?.current_streak || 0,
-      longest_streak: streak?.longest_streak || 0,
-      total_checkins: streak?.total_checkins || 0,
-      next_reward: getStreakReward((streak?.current_streak || 0) + 1),
-      last_checkin_date: streak?.last_checkin_date || null,
-    })
+    return NextResponse.json(
+      {
+        claimed,
+        current_streak: streak?.current_streak || 0,
+        longest_streak: streak?.longest_streak || 0,
+        total_checkins: streak?.total_checkins || 0,
+        next_reward: getStreakReward((streak?.current_streak || 0) + 1),
+        last_checkin_date: streak?.last_checkin_date || null,
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
+        },
+      }
+    )
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -48,7 +57,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const { user_id } = await req.json()
-    if (!user_id) return NextResponse.json({ error: 'user_id required' }, { status: 400 })
+    if (!user_id) {
+      return NextResponse.json({ error: 'user_id required' }, { status: 400 })
+    }
 
     const today = new Date().toISOString().split('T')[0]
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
@@ -68,9 +79,8 @@ export async function POST(req: Request) {
     // Calculate new streak
     let newStreak = 1
     if (existing?.last_checkin_date === yesterday) {
-      newStreak = (existing.current_streak || 0) + 1 // streak continues
+      newStreak = (existing.current_streak || 0) + 1
     }
-    // if last checkin was before yesterday: streak resets to 1
 
     const newLongest = Math.max(newStreak, existing?.longest_streak || 0)
     const reward = getStreakReward(newStreak)
@@ -94,7 +104,9 @@ export async function POST(req: Request) {
       .eq('user_id', user_id)
       .single()
 
-    if (!wallet) return NextResponse.json({ error: 'Wallet not found' }, { status: 404 })
+    if (!wallet) {
+      return NextResponse.json({ error: 'Wallet not found' }, { status: 404 })
+    }
 
     const newBalance = Number(wallet.coin_balance) + reward
 
@@ -128,6 +140,7 @@ export async function POST(req: Request) {
       is_milestone: [7, 14, 30].includes(newStreak),
     })
   } catch (error: any) {
+    console.error('Check-in error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

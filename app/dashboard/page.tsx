@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -48,6 +48,7 @@ interface StreakData {
 export default function DashboardPage() {
   const router = useRouter()
   const supabase = createClient()
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<DashboardData | null>(null)
@@ -57,7 +58,14 @@ export default function DashboardPage() {
   const [checkinLoading, setCheckinLoading] = useState(false)
   const [showCoinAnim, setShowCoinAnim] = useState(false)
 
-  useEffect(() => { loadDashboard() }, [])
+  useEffect(() => {
+    loadDashboard()
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
 
   // Realtime wallet
   useEffect(() => {
@@ -83,14 +91,33 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
 
+      // ✅ Add AbortController for timeout
+      abortControllerRef.current = new AbortController()
+      const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 8000)
+
       const [profileRes, walletRes, txRes, audioRes, sessionRes, streakRes] = await Promise.all([
         supabase.from('users').select('username, full_name').eq('id', user.id).single(),
         supabase.from('wallets').select('coin_balance, total_earned, total_withdrawn').eq('user_id', user.id).single(),
-        supabase.from('transactions').select('id, type, coins_amount, description, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
-        supabase.from('audios').select('id, title, duration_seconds, reward_coins').eq('is_active', true).limit(6),
-        supabase.from('audio_sessions').select('audio_id').eq('user_id', user.id).eq('reward_granted', true).gte('created_at', `${new Date().toISOString().split('T')[0]}T00:00:00`),
-        fetch(`/api/checkin?user_id=${user.id}`).then(r => r.json()),
+        supabase.from('transactions')
+          .select('id, type, coins_amount, description, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5),
+        supabase.from('audios')
+          .select('id, title, duration_seconds, reward_coins')
+          .eq('is_active', true)
+          .limit(6),
+        supabase.from('audio_sessions')
+          .select('audio_id')
+          .eq('user_id', user.id)
+          .eq('reward_granted', true)
+          .gte('created_at', `${new Date().toISOString().split('T')[0]}T00:00:00`),
+        fetch(`/api/checkin?user_id=${user.id}`, { 
+          signal: abortControllerRef.current.signal,
+        }).then(r => r.json()).catch(() => null),
       ])
+
+      clearTimeout(timeoutId)
 
       const listenedIds = new Set((sessionRes.data || []).map((s: any) => s.audio_id))
 
@@ -107,8 +134,12 @@ export default function DashboardPage() {
         ...a, is_listened_today: listenedIds.has(a.id),
       })))
       setStreak(streakRes)
-    } catch {
-      toast.error('Error loading dashboard')
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Request timeout')
+      } else {
+        toast.error('Error loading dashboard')
+      }
     } finally {
       setLoading(false)
     }
@@ -184,6 +215,7 @@ export default function DashboardPage() {
               width={32} 
               height={32}
               className="rounded-lg"
+              priority
             />
             <div>
               <p className="font-semibold text-gray-900 leading-tight">{data?.full_name || data?.username}</p>
