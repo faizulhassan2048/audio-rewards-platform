@@ -2,6 +2,9 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// ✅ ADD THIS — Static generation disable karo
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams, origin } = new URL(request.url)
@@ -73,6 +76,8 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('❌ Callback crash:', error.message)
+    // ✅ Fix: origin defined nahi hai error state mein
+    const { origin } = new URL(request.url)
     return NextResponse.redirect(`${origin}/auth/login?error=callback_failed`)
   }
 }
