@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, User, Mail, Calendar, LogOut } from 'lucide-react';
+import BackButton from '@/components/ui/BackButton';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -53,9 +54,7 @@ export default function ProfilePage() {
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50">
         <div className="px-4 h-14 flex items-center gap-3">
-          <Link href="/dashboard" className="text-gray-400 hover:text-purple-600">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
+          <BackButton />
           <h1 className="font-bold text-gray-900">Profile</h1>
         </div>
       </header>

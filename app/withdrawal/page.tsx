@@ -9,6 +9,7 @@ import {
   ArrowLeft, Wallet, AlertCircle, CheckCircle,
   Clock, XCircle, Banknote, Smartphone, Building2, Info
 } from 'lucide-react'
+import BackButton from '@/components/ui/BackButton'
 
 interface WithdrawalHistory {
   id: string
@@ -145,9 +146,7 @@ export default function WithdrawalPage() {
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
-          <Link href="/wallet" className="text-gray-400 hover:text-purple-600 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
+          <BackButton />
           <h1 className="font-bold text-gray-900">Withdraw Coins</h1>
         </div>
       </header>

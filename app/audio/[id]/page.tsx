@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import AudioPlayer from '@/components/audio/AudioPlayer';
+import BackButton from '@/components/ui/BackButton';
 
 export default function AudioPlayerPage() {
   const params = useParams();
@@ -58,17 +58,14 @@ export default function AudioPlayerPage() {
   return (
     <div className="max-w-2xl mx-auto p-4 md:p-8">
       {/* Back Button */}
-      <Link
-        href="/audio"
-        className="inline-flex items-center gap-2 text-gray-500 hover:text-purple-600 transition-colors mb-6"
-      >
-        <ArrowLeft size={20} />
-        Back to audio list
-      </Link>
+      <div className="flex items-center gap-3 mb-6">
+        <BackButton />
+        <h1 className="font-bold text-gray-900 text-lg">Audio Player</h1>
+      </div>
 
       {/* Audio Player */}
       <AudioPlayer
-        audioId={audio.id}        // ✅ YEH LINE ADD KI
+        audioId={audio.id}
         audioUrl={audio.audio_url}
         title={audio.title}
         duration={audio.duration_seconds}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -47,6 +47,7 @@ interface StreakData {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const pathname = usePathname()
   const supabase = createClient()
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -200,6 +201,14 @@ export default function DashboardPage() {
 
   const availableCount = audios.filter(a => !a.is_listened_today).length
   const completedToday = audios.filter(a => a.is_listened_today).length
+
+  // ✅ Navigation items with active state
+  const navItems = [
+    { href: '/dashboard', icon: Home, label: 'Home' },
+    { href: '/audio', icon: Headphones, label: 'Tasks' },
+    { href: '/referral', icon: Users, label: 'Referrals' },
+    { href: '/profile', icon: User, label: 'Profile' },
+  ]
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white pb-28">
@@ -446,33 +455,27 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* Bottom Navigation */}
+      {/* ✅ Bottom Navigation with Active State */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg z-50">
         <div className="flex justify-around items-center h-16 max-w-4xl mx-auto">
-          <Link href="/dashboard" className="flex-1">
-            <div className="flex flex-col items-center py-1 text-purple-600">
-              <Home className="w-6 h-6" />
-              <span className="text-xs font-medium">Home</span>
-            </div>
-          </Link>
-          <Link href="/audio" className="flex-1">
-            <div className="flex flex-col items-center py-1 text-gray-400 hover:text-purple-600 transition">
-              <Headphones className="w-6 h-6" />
-              <span className="text-xs font-medium">Tasks</span>
-            </div>
-          </Link>
-          <Link href="/referral" className="flex-1">
-            <div className="flex flex-col items-center py-1 text-gray-400 hover:text-purple-600 transition">
-              <Users className="w-6 h-6" />
-              <span className="text-xs font-medium">Referrals</span>
-            </div>
-          </Link>
-          <Link href="/profile" className="flex-1">
-            <div className="flex flex-col items-center py-1 text-gray-400 hover:text-purple-600 transition">
-              <User className="w-6 h-6" />
-              <span className="text-xs font-medium">Profile</span>
-            </div>
-          </Link>
+          {navItems.map((item) => {
+            const isActive = pathname === item.href
+            return (
+              <Link key={item.href} href={item.href} className="flex-1">
+                <div className={`flex flex-col items-center py-1 transition-colors ${
+                  isActive ? 'text-purple-600' : 'text-gray-400 hover:text-purple-600'
+                }`}>
+                  <item.icon className={`w-6 h-6 ${isActive ? 'text-purple-600' : 'text-gray-400'}`} />
+                  <span className={`text-xs font-medium ${isActive ? 'text-purple-600' : 'text-gray-400'}`}>
+                    {item.label}
+                  </span>
+                  {isActive && (
+                    <div className="w-1 h-1 bg-purple-600 rounded-full mt-0.5" />
+                  )}
+                </div>
+              </Link>
+            )
+          })}
         </div>
       </nav>
 

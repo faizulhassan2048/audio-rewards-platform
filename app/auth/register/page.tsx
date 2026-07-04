@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useRef, Suspense } from "react";
+import { useState, useRef, Suspense, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ArrowRight, Mail, Lock, User, Users } from "lucide-react";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { createClient } from "@/lib/supabase/client";
@@ -21,6 +21,7 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
   const [form, setForm] = useState({
     fullName: "",
     username: "",
@@ -32,6 +33,18 @@ export default function RegisterPage() {
     captchaRef.current?.resetCaptcha();
     setCaptchaToken(null);
   };
+
+  // ✅ Get referral code from URL
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get('ref');
+      if (ref) {
+        console.log('🔑 Referral Code captured:', ref);
+        setReferralCode(ref);
+      }
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +84,7 @@ export default function RegisterPage() {
         }
       }
 
-      const refCode = new URLSearchParams(window.location.search).get('ref');
+      console.log('🔑 Referral Code from state:', referralCode);
 
       const { data, error } = await supabase.auth.signUp({
         email: form.email.trim(),
@@ -81,41 +94,63 @@ export default function RegisterPage() {
           data: {
             full_name: form.fullName.trim(),
             username: username,
-            referral_code: refCode || null,
+            referral_code: referralCode || null,
           },
         },
       });
 
-      if (error) {
-        // ✅ Detailed error messages with string conversion
-        let errorMessage = error.message || 'Something went wrong';
-        
-        if (typeof error === 'object' && error !== null) {
-          errorMessage = error.message || JSON.stringify(error);
-        }
+      console.log('📤 SignUp data:', { 
+        email: form.email.trim(), 
+        username, 
+        referral_code: referralCode || null 
+      });
 
+      if (error) {
+        console.error('❌ Signup error:', error);
+        
+        // ✅ Extract error message properly
+        let errorMessage = '';
+        
+        if (typeof error === 'string') {
+          errorMessage = error;
+        } else if (error.message) {
+          errorMessage = error.message;
+        } else {
+          errorMessage = JSON.stringify(error);
+        }
+        
+        console.log('📝 Error message:', errorMessage);
+
+        // ✅ Check for specific errors
         if (errorMessage.includes("already registered") || errorMessage.includes("already been registered")) {
           toast.error("❌ Email already registered. Please login instead.");
-        } else if (errorMessage.includes("Password")) {
-          toast.error("❌ Password is too weak. Use at least 6 characters with numbers and letters.");
-        } else if (errorMessage.includes("Username") || errorMessage.includes("username")) {
+        } else if (errorMessage.includes("Password") || errorMessage.toLowerCase().includes("password")) {
+          toast.error("❌ Password is too weak. Use at least 6 characters.");
+        } else if (errorMessage.includes("Username") || errorMessage.toLowerCase().includes("username")) {
           toast.error("❌ Username already taken. Please choose another.");
-        } else if (errorMessage.includes("Network") || errorMessage.includes("fetch")) {
+        } else if (errorMessage.includes("Network") || errorMessage.includes("fetch") || errorMessage.includes("network")) {
           toast.error("❌ Network error. Please check your internet connection.");
         } else if (errorMessage.includes("timeout")) {
           toast.error("❌ Request timeout. Please try again.");
-        } else if (errorMessage.includes("invalid")) {
+        } else if (errorMessage.includes("invalid") || errorMessage.includes("Invalid")) {
           toast.error("❌ Please enter a valid email address.");
         } else {
-          toast.error("❌ " + errorMessage);
+          // ✅ Show actual error message (not empty object)
+          const displayMessage = errorMessage && errorMessage !== '{}' && errorMessage !== '[]' 
+            ? errorMessage 
+            : 'Something went wrong. Please try again.';
+          toast.error("❌ " + displayMessage);
         }
+        
         resetCaptcha();
         setLoading(false);
         return;
       }
 
       if (data.user) {
-        // ✅ Save device fingerprint after registration
+        console.log('✅ User created:', data.user.id);
+        console.log('📊 Meta data:', data.user.user_metadata);
+
         if (fingerprint) {
           try {
             await fetch("/api/security/device", {
@@ -145,13 +180,29 @@ export default function RegisterPage() {
 
     } catch (err: any) {
       console.error("Register error:", err);
-      const errorMsg = err.message || 'Something went wrong';
+      
+      // ✅ Extract error message properly
+      let errorMsg = '';
+      
+      if (typeof err === 'string') {
+        errorMsg = err;
+      } else if (err.message) {
+        errorMsg = err.message;
+      } else {
+        errorMsg = JSON.stringify(err);
+      }
+      
+      console.log('📝 Catch error:', errorMsg);
+      
       if (errorMsg.includes("Network") || errorMsg.includes("fetch")) {
         toast.error("❌ Network error. Please check your internet connection.");
       } else if (errorMsg.includes("timeout")) {
         toast.error("❌ Request timeout. Please try again.");
       } else {
-        toast.error("❌ " + errorMsg);
+        const displayMsg = errorMsg && errorMsg !== '{}' && errorMsg !== '[]' 
+          ? errorMsg 
+          : 'Something went wrong. Please try again.';
+        toast.error("❌ " + displayMsg);
       }
     } finally {
       setLoading(false);
@@ -171,7 +222,6 @@ export default function RegisterPage() {
         </Link>
 
         <div className="bg-white rounded-3xl shadow-2xl p-8 border border-gray-100/50">
-          {/* Header with Logo */}
           <div className="flex items-center justify-center gap-2 mb-6">
             <Image 
               src="/logo.png" 

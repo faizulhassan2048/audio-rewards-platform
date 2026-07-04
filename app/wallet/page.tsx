@@ -9,6 +9,7 @@ import {
   ArrowLeft, Wallet, TrendingUp, ArrowDownCircle,
   Headphones, CheckSquare, Users, Gift, Filter
 } from 'lucide-react'
+import BackButton from '@/components/ui/BackButton'
 
 interface WalletData {
   coin_balance: number
@@ -116,9 +117,7 @@ export default function WalletPage() {
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
-          <Link href="/dashboard" className="text-gray-400 hover:text-purple-600 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
+          <BackButton />
           <h1 className="font-bold text-gray-900">My Wallet</h1>
         </div>
       </header>

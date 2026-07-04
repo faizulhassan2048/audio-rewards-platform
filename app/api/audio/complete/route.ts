@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       .from('audio_sessions')
       .select('*, audio:audios(*)')
       .eq('session_token', sessionToken)
-      .eq('user_id', user.id) // ✅ Security: apna hi session
+      .eq('user_id', user.id)
       .single();
 
     if (sessionError || !session) {
@@ -61,6 +61,36 @@ export async function POST(req: Request) {
           effective: effectiveProgress
         }
       }, { status: 400 });
+    }
+
+    // ✅ NEW: Check cooldown period
+    const cooldownDays = session.audio?.reward_cooldown_days || 1;
+    const cooldownDate = new Date();
+    cooldownDate.setDate(cooldownDate.getDate() - cooldownDays);
+    cooldownDate.setHours(0, 0, 0, 0);
+
+    // ✅ NEW: Check if user already claimed this audio within cooldown period
+    const { data: existingClaim, error: existingError } = await supabaseAdmin
+      .from('audio_sessions')
+      .select('id, created_at')
+      .eq('user_id', user.id)
+      .eq('audio_id', session.audio_id)
+      .eq('reward_granted', true)
+      .gte('created_at', cooldownDate.toISOString())
+      .maybeSingle();
+
+    if (existingClaim) {
+      // Calculate next available time
+      const nextAvailable = new Date(existingClaim.created_at);
+      nextAvailable.setDate(nextAvailable.getDate() + cooldownDays);
+      
+      return NextResponse.json({
+        success: false,
+        error: 'Already claimed',
+        next_available: nextAvailable.toISOString(),
+        cooldown_days: cooldownDays,
+        message: `Already claimed! Available again after ${cooldownDays} day(s)`
+      }, { status: 409 });
     }
 
     // Wallet fetch
@@ -213,6 +243,8 @@ export async function POST(req: Request) {
       success: true,
       reward: rewardCoins,
       newBalance: newBalance,
+      cooldown_days: cooldownDays,
+      message: `✅ Claimed! You earned ${rewardCoins} coins`
     });
 
   } catch (error: any) {
