@@ -206,10 +206,10 @@ export default function DashboardPage() {
     </div>
   )
 
-  // Navigation items with active state
+  // ✅ Navigation items with Tasks → /tasks
   const navItems = [
     { href: '/dashboard', icon: Home, label: 'Home' },
-    { href: '/audio', icon: Headphones, label: 'Tasks' },
+    { href: '/tasks', icon: Headphones, label: 'Tasks' },  // ✅ /audio → /tasks
     { href: '/referral', icon: Users, label: 'Referrals' },
     { href: '/profile', icon: User, label: 'Profile' },
   ]
@@ -379,13 +379,13 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Quick Actions */}
+        {/* ✅ Quick Actions — Listen button → /tasks */}
         <div className="grid grid-cols-4 gap-3">
           {[
-            { href: '/audio',      icon: <Headphones className="w-6 h-6 text-purple-500" />, label: 'Listen',     sub: 'Earn coins' },
-            { href: '/wallet',     icon: <Wallet className="w-6 h-6 text-green-500" />,      label: 'Wallet',     sub: 'Balance'    },
-            { href: '/referral',   icon: <Gift className="w-6 h-6 text-pink-500" />,          label: 'Refer',      sub: 'Earn more'  },
-            { href: '/leaderboard',icon: <Star className="w-6 h-6 text-yellow-500" />,        label: 'Rank',       sub: 'Top earners'},
+            { href: '/tasks', icon: <Headphones className="w-6 h-6 text-purple-500" />, label: 'Listen', sub: 'Earn coins' },
+            { href: '/wallet', icon: <Wallet className="w-6 h-6 text-green-500" />, label: 'Wallet', sub: 'Balance' },
+            { href: '/referral', icon: <Gift className="w-6 h-6 text-pink-500" />, label: 'Refer', sub: 'Earn more' },
+            { href: '/leaderboard', icon: <Star className="w-6 h-6 text-yellow-500" />, label: 'Rank', sub: 'Top earners' },
           ].map((item) => (
             <Link key={item.href} href={item.href}
               className="bg-white rounded-2xl p-3 shadow border border-gray-100 hover:border-purple-300 hover:shadow-md transition-all text-center group">

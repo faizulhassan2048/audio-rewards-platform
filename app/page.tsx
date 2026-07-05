@@ -3,10 +3,23 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { createClient } from '@/lib/supabase/client';
 
 export default function Home() {
   const searchParams = useSearchParams();
   const refCode = searchParams.get('ref');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const supabase = createClient();
+
+  useEffect(() => {
+    checkUser();
+  }, []);
+
+  const checkUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setIsLoggedIn(!!user);
+  };
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-purple-50 to-white">
@@ -39,7 +52,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* Hero Section */}
+      {/* Hero Section — Sirf yeh rahega, 4 button nahi */}
       <section className="max-w-4xl mx-auto px-4 py-20 text-center">
         <h1 className="text-5xl font-bold mb-6">
           Listen. <span className="text-purple-600">Earn.</span> Withdraw.
@@ -47,48 +60,11 @@ export default function Home() {
         <p className="text-xl text-gray-600 mb-8">
           Earn real rewards by listening to audio content.
         </p>
-
-        {/* ✅ Yeh 4 buttons hain — Listen button yahan change karna hai */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto">
-          
-          {/* ✅ Listen Button — /audio se /tasks karein */}
-          <Link href="/tasks">
-            <div className="bg-white p-4 rounded-xl shadow hover:shadow-md transition cursor-pointer">
-              <div className="text-3xl mb-2">🎧</div>
-              <p className="font-semibold text-gray-800">Listen</p>
-              <p className="text-xs text-gray-500">Earn coins</p>
-            </div>
-          </Link>
-
-          <Link href="/wallet">
-            <div className="bg-white p-4 rounded-xl shadow hover:shadow-md transition cursor-pointer">
-              <div className="text-3xl mb-2">💰</div>
-              <p className="font-semibold text-gray-800">Wallet</p>
-              <p className="text-xs text-gray-500">Balance</p>
-            </div>
-          </Link>
-
-          <Link href="/profile">
-            <div className="bg-white p-4 rounded-xl shadow hover:shadow-md transition cursor-pointer">
-              <div className="text-3xl mb-2">👥</div>
-              <p className="font-semibold text-gray-800">Refer</p>
-              <p className="text-xs text-gray-500">Earn more</p>
-            </div>
-          </Link>
-
-          <Link href="/leaderboard">
-            <div className="bg-white p-4 rounded-xl shadow hover:shadow-md transition cursor-pointer">
-              <div className="text-3xl mb-2">🏆</div>
-              <p className="font-semibold text-gray-800">Rank</p>
-              <p className="text-xs text-gray-500">Top earners</p>
-            </div>
-          </Link>
-
-        </div>
-
-        <Link href={`/auth/register${refCode ? `?ref=${refCode}` : ''}`}>
+        
+        {/* ✅ Get Started Button */}
+        <Link href={isLoggedIn ? "/dashboard" : `/auth/register${refCode ? `?ref=${refCode}` : ''}`}>
           <button className="px-8 py-4 bg-purple-600 text-white rounded-lg text-lg hover:bg-purple-700">
-            Get Started Free
+            {isLoggedIn ? "Go to Dashboard" : "Get Started Free"}
           </button>
         </Link>
       </section>
