@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from '@/lib/supabase/client';
+import { Shield, FileText, Mail } from 'lucide-react';
 
 export default function Home() {
   const searchParams = useSearchParams();
@@ -68,15 +69,18 @@ export default function Home() {
           </button>
         </Link>
 
-        {/* Footer Links */}
+        {/* Footer Links with Icons */}
         <div className="mt-12 pt-8 border-t border-gray-200 flex flex-wrap justify-center gap-6 text-sm text-gray-500">
-          <Link href="/privacy-policy" className="hover:text-purple-600 transition-colors">
+          <Link href="/privacy-policy" className="flex items-center gap-1.5 hover:text-purple-600 transition-colors">
+            <Shield className="w-4 h-4" />
             Privacy Policy
           </Link>
-          <Link href="/terms" className="hover:text-purple-600 transition-colors">
+          <Link href="/terms" className="flex items-center gap-1.5 hover:text-purple-600 transition-colors">
+            <FileText className="w-4 h-4" />
             Terms of Service
           </Link>
-          <a href="mailto:awaisealtaf@gmail.com" className="hover:text-purple-600 transition-colors">
+          <a href="mailto:awaisealtaf@gmail.com" className="flex items-center gap-1.5 hover:text-purple-600 transition-colors">
+            <Mail className="w-4 h-4" />
             Contact
           </a>
         </div>

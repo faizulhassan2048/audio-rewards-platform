@@ -26,21 +26,10 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // ✅ getUser() — accurate session check
   const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
 
-  // ── 1. Logged in user → auth pages se dashboard bhejo ─────────
-  const authRoutes = [
-    '/auth/login',
-    '/auth/register',
-    '/auth/forgot-password',
-  ]
-  if (user && authRoutes.includes(pathname)) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
-  }
-
-  // ── 2. Logged out user → protected pages se login bhejo ───────
+  // ── Protected routes check ──────────────────────────────
   const protectedRoutes = [
     '/dashboard',
     '/audio',
@@ -48,35 +37,33 @@ export async function middleware(request: NextRequest) {
     '/referral',
     '/leaderboard',
     '/withdrawal',
+    '/profile',
+    '/admin',
   ]
+  
   const isProtected = protectedRoutes.some((route) =>
     pathname.startsWith(route)
   )
-  if (!user && isProtected) {
-    const loginUrl = new URL('/auth/login', request.url)
-    loginUrl.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(loginUrl)
+
+  // ── Response with headers ──────────────────────────────
+  const response = NextResponse.next({ request })
+  
+  // Add user session info to headers (for client-side use)
+  if (user) {
+    response.headers.set('x-user-id', user.id)
+    response.headers.set('x-user-email', user.email || '')
+  }
+  
+  // Prevent caching for protected routes
+  if (isProtected) {
+    response.headers.set('Cache-Control', 'no-store, must-revalidate')
+    response.headers.set('Pragma', 'no-cache')
+    response.headers.set('Expires', '0')
   }
 
-  // ── 3. Admin routes → role check ──────────────────────────────
-  if (pathname.startsWith('/admin')) {
-    if (!user) {
-      return NextResponse.redirect(new URL('/auth/login', request.url))
-    }
-    const { data: userData } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    const isAdmin = ['admin', 'super_admin'].includes(userData?.role || '')
-    if (!isAdmin) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
-  }
-
-  // ── 4. Public routes → allow ───────────────────────────────────
-  return supabaseResponse
+  // ✅ Remove all redirects from middleware
+  // Client-side components handle redirects
+  return response
 }
 
 export const config = {
