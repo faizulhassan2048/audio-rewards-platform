@@ -112,15 +112,8 @@ export default function WalletPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white pb-10">
-
-      {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-50">
-        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
-          <BackButton />
-          <h1 className="font-bold text-gray-900">My Wallet</h1>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white pb-24">
+      {/* ✅ No header here — BottomNav handles navigation */}
 
       <div className="max-w-2xl mx-auto px-4 py-5 space-y-4">
 
@@ -160,15 +153,15 @@ export default function WalletPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow p-4">
           <p className="text-sm font-semibold text-gray-700 mb-3">Earn More Coins</p>
           <div className="grid grid-cols-3 gap-2">
-            <Link href="/audio" className="flex flex-col items-center gap-1.5 p-3 bg-purple-50 rounded-xl hover:bg-purple-100 transition-colors">
+            <Link href="/tasks" className="flex flex-col items-center gap-1.5 p-3 bg-purple-50 rounded-xl hover:bg-purple-100 transition-colors">
               <Headphones className="w-6 h-6 text-purple-600" />
-              <span className="text-xs font-medium text-purple-700">Listen</span>
+              <span className="text-xs font-medium text-purple-700">Tasks</span>
             </Link>
-            <Link href="/dashboard" className="flex flex-col items-center gap-1.5 p-3 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors">
+            <Link href="/" className="flex flex-col items-center gap-1.5 p-3 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors">
               <CheckSquare className="w-6 h-6 text-blue-600" />
               <span className="text-xs font-medium text-blue-700">Check-in</span>
             </Link>
-            <Link href="/referral" className="flex flex-col items-center gap-1.5 p-3 bg-pink-50 rounded-xl hover:bg-pink-100 transition-colors">
+            <Link href="/profile" className="flex flex-col items-center gap-1.5 p-3 bg-pink-50 rounded-xl hover:bg-pink-100 transition-colors">
               <Users className="w-6 h-6 text-pink-600" />
               <span className="text-xs font-medium text-pink-700">Refer</span>
             </Link>
@@ -226,6 +219,27 @@ export default function WalletPage() {
                 )
               })
             )}
+          </div>
+        </div>
+
+        {/* ✅ Referral section moved inside Wallet */}
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <div className="flex items-start gap-3">
+            <div className="bg-amber-100 p-2 rounded-full">
+              <Users className="w-5 h-5 text-amber-700" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800">👥 Refer & Earn</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Share your referral link and earn <strong>50 coins</strong> per referral!
+              </p>
+              <Link
+                href="/profile"
+                className="mt-2 inline-block text-xs font-medium text-amber-700 hover:text-amber-900 underline"
+              >
+                Get Referral Link →
+              </Link>
+            </div>
           </div>
         </div>
 

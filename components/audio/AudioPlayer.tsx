@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Play, Pause, Volume2, VolumeX, RotateCcw, Loader2 } from 'lucide-react';
+import AdModal from './AdModal';
 
 interface AudioPlayerProps {
   audioId: string;
@@ -12,6 +13,8 @@ interface AudioPlayerProps {
   onComplete?: () => void;
 }
 
+// Fired once immediately on mount to warm up the session + start
+// buffering the audio, so the very first "Play" press is instant.
 export default function AudioPlayer({
   audioId,
   audioUrl,
@@ -33,12 +36,17 @@ export default function AudioPlayer({
   const [audioError, setAudioError] = useState<string | null>(null);
   const [audioReady, setAudioReady] = useState(false);
 
-  // ✅ NEW: Reward claimed state with cooldown info
+  // Reward + rotation/cooldown state
   const [rewardClaimed, setRewardClaimed] = useState(false);
+  const [statusChecked, setStatusChecked] = useState(false);
   const [cooldownInfo, setCooldownInfo] = useState<{
     nextAvailable?: Date;
     days?: number;
   }>({});
+
+  // Ad state — shown after 100% completion, before reward is granted
+  const [showAd, setShowAd] = useState(false);
+  const [claimingReward, setClaimingReward] = useState(false);
 
   // Warning states
   const [tabWarning, setTabWarning] = useState(false);
@@ -54,6 +62,81 @@ export default function AudioPlayer({
   const muteTimer = useRef<NodeJS.Timeout | null>(null);
   const sessionTokenRef = useRef<string | null>(null);
   const isCompletedRef = useRef(false);
+  const sessionStartedRef = useRef(false);
+
+  // ── FEATURE 0: Check claim/cooldown status on mount ────────────
+  // This is what makes "Completed" show instantly on page load,
+  // instead of the user having to replay the whole track to find out.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/audio/status?audioId=${encodeURIComponent(audioId)}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.claimed) {
+          setRewardClaimed(true);
+          setIsCompleted(true);
+          isCompletedRef.current = true;
+          if (data.next_available) {
+            setCooldownInfo({
+              nextAvailable: new Date(data.next_available),
+              days: data.cooldown_days,
+            });
+          }
+        }
+      } catch {
+        // Non-fatal — worst case user finds out at claim time
+      } finally {
+        if (!cancelled) setStatusChecked(true);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioId]);
+
+  // ── FEATURE 0b: Warm up session + start buffering on mount ─────
+  // This is the fix for "audio reloads / takes long on Play".
+  // We no longer wait for the user to press Play before asking the
+  // server for a signed URL — we do it as soon as the player mounts,
+  // in parallel with the rest of the page loading.
+  const warmUpSession = useCallback(async () => {
+    if (sessionStartedRef.current) return;
+    sessionStartedRef.current = true;
+    try {
+      const res = await fetch('/api/audio/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        sessionTokenRef.current = data.session.token;
+        setIsSessionActive(true);
+        if (audioRef.current && data.session.audio_url) {
+          // Only assign src if it's not already set to the same URL —
+          // reassigning the same src is what causes an unwanted reload.
+          if (audioRef.current.getAttribute('src') !== data.session.audio_url) {
+            audioRef.current.src = data.session.audio_url;
+            audioRef.current.load();
+          }
+        }
+      } else {
+        setAudioError(data.error || 'Failed to start session');
+      }
+    } catch {
+      setAudioError('Network error. Please try again.');
+      sessionStartedRef.current = false; // allow retry
+    }
+  }, [audioId]);
+
+  useEffect(() => {
+    // Don't bother warming up a session for a track that's already
+    // completed and in cooldown — nothing to buffer for.
+    if (statusChecked && !rewardClaimed) {
+      warmUpSession();
+    }
+  }, [statusChecked, rewardClaimed, warmUpSession]);
 
   // ── FEATURE 1: Tab Switch / Visibility Detection ───────────────
   useEffect(() => {
@@ -130,32 +213,6 @@ export default function AudioPlayer({
     };
   }, [isSessionActive]);
 
-  // ── Session Start ──────────────────────────────────────────────
-  const startSession = async () => {
-    try {
-      const res = await fetch('/api/audio/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        sessionTokenRef.current = data.session.token;
-        setIsSessionActive(true);
-        if (audioRef.current && data.session.audio_url) {
-          audioRef.current.src = data.session.audio_url;
-        }
-        return true;
-      } else {
-        setAudioError(data.error || 'Failed to start session');
-        return false;
-      }
-    } catch {
-      setAudioError('Network error. Please try again.');
-      return false;
-    }
-  };
-
   // ── Heartbeat ──────────────────────────────────────────────────
   const sendHeartbeat = useCallback(async () => {
     const token = sessionTokenRef.current;
@@ -167,7 +224,7 @@ export default function AudioPlayer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionToken: token, progressPercent, clientTimestamp: Date.now() }),
       });
-    } catch { console.log('Heartbeat failed'); }
+    } catch { /* non-fatal */ }
   }, [duration]);
 
   useEffect(() => {
@@ -188,7 +245,7 @@ export default function AudioPlayer({
 
   // ── Play / Pause ────────────────────────────────────────────────
   const togglePlay = async () => {
-    if (!audioRef.current || audioLoading) return;
+    if (!audioRef.current || audioLoading || rewardClaimed) return;
 
     if (pausedBySystem) {
       if (pauseReason === 'volume_too_low') {
@@ -213,18 +270,21 @@ export default function AudioPlayer({
       audioRef.current.muted = false;
     }
 
+    // Session should already be warmed up from mount — this is just
+    // a safety net in case the initial warm-up failed.
     if (!isSessionActive) {
       setAudioLoading(true);
-      const started = await startSession();
+      sessionStartedRef.current = false;
+      await warmUpSession();
       setAudioLoading(false);
-      if (!started) return;
+      if (!sessionTokenRef.current) return;
     }
 
     try {
       await audioRef.current.play();
       setIsPlaying(true);
       setAudioError(null);
-    } catch (err: any) {
+    } catch {
       setAudioError('Could not play audio. Try again.');
       setIsPlaying(false);
     }
@@ -236,10 +296,57 @@ export default function AudioPlayer({
     setAudioReady(false);
     setIsSessionActive(false);
     sessionTokenRef.current = null;
-    if (audioRef.current) {
-      audioRef.current.load();
-    }
+    sessionStartedRef.current = false;
+    warmUpSession();
   };
+
+  // ── Reward claim (called after ad finishes) ─────────────────────
+  const claimReward = useCallback(async () => {
+    const token = sessionTokenRef.current;
+    if (!token) { alert('Session error. Please refresh.'); return; }
+    setClaimingReward(true);
+    try {
+      await fetch('/api/audio/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionToken: token, progressPercent: 100, clientTimestamp: Date.now() }),
+      });
+      await new Promise((r) => setTimeout(r, 400));
+
+      const res = await fetch('/api/audio/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionToken: token, progressPercent: 100 }),
+      });
+      const data = await res.json();
+
+      if (res.status === 409 && data.error === 'Already claimed') {
+        setRewardClaimed(true);
+        if (data.next_available) {
+          setCooldownInfo({
+            nextAvailable: new Date(data.next_available),
+            days: data.cooldown_days,
+          });
+        }
+        if (onComplete) onComplete();
+        return;
+      }
+
+      if (data.success) {
+        setRewardClaimed(true);
+        if (data.next_available) {
+          setCooldownInfo({ nextAvailable: new Date(data.next_available), days: data.cooldown_days ?? 2 });
+        }
+        if (onComplete) onComplete();
+      } else {
+        alert('Failed to get reward: ' + data.error);
+      }
+    } catch {
+      alert('Network error. Please try again.');
+    } finally {
+      setClaimingReward(false);
+    }
+  }, [onComplete]);
 
   // ── Time Update ─────────────────────────────────────────────────
   const handleTimeUpdate = () => {
@@ -263,66 +370,19 @@ export default function AudioPlayer({
     setCurrentTime(current);
     setProgress((current / duration) * 100);
 
-    // ✅ 100% completion — reward sirf ek baar
+    // 100% completion — show the ad, reward comes after the ad.
     if (current >= duration * 0.95 && !isCompleted && !isCompletedRef.current && !rewardClaimed) {
       isCompletedRef.current = true;
       setIsCompleted(true);
       setIsPlaying(false);
-
-      const completeAudio = async () => {
-        const token = sessionTokenRef.current;
-        if (!token) { alert('Session error. Please refresh.'); return; }
-        try {
-          await fetch('/api/audio/heartbeat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionToken: token, progressPercent: 100, clientTimestamp: Date.now() }),
-          });
-          await new Promise(r => setTimeout(r, 800));
-
-          const res = await fetch('/api/audio/complete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionToken: token, progressPercent: 100 }),
-          });
-          const data = await res.json();
-          
-          // ✅ Handle 409 - Already claimed with cooldown
-          if (res.status === 409 && data.error === 'Already claimed') {
-            setRewardClaimed(true);
-            if (data.next_available) {
-              const nextTime = new Date(data.next_available);
-              const formattedDate = nextTime.toLocaleDateString('en-PK', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              });
-              setCooldownInfo({
-                nextAvailable: nextTime,
-                days: data.cooldown_days
-              });
-              alert(`⏳ Already claimed! Available again: ${formattedDate}`);
-            } else {
-              alert('✅ Already claimed this audio!');
-            }
-            if (onComplete) onComplete();
-            return;
-          }
-
-          if (data.success) {
-            setRewardClaimed(true);
-            alert(`🎉 You earned ${data.reward} coins!\nNew balance: ${data.newBalance} coins`);
-            if (onComplete) onComplete();
-          } else {
-            alert('Failed to get reward: ' + data.error);
-          }
-        } catch { alert('Network error. Please try again.'); }
-      };
-
-      completeAudio();
+      audioRef.current.pause();
+      setShowAd(true);
     }
+  };
+
+  const handleAdFinished = () => {
+    setShowAd(false);
+    claimReward();
   };
 
   // ── Volume Controls ────────────────────────────────────────────
@@ -343,10 +403,12 @@ export default function AudioPlayer({
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 
+  const formatCooldownDate = (d: Date) =>
+    d.toLocaleDateString('en-PK', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
   // ── UI ──────────────────────────────────────────────────────────
   return (
-    <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-      {/* Audio element */}
+    <div className="w-full max-w-md mx-auto bg-white rounded-2xl shadow-lg p-4 sm:p-6 border border-gray-100">
       <audio
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
@@ -360,42 +422,40 @@ export default function AudioPlayer({
           setAudioError('Audio failed to load. Please try again.');
           setIsPlaying(false);
         }}
-        preload="none"
+        preload="auto"
       >
+        {/* audioUrl kept only as a fallback poster; real src comes from the signed session URL */}
         <source src={audioUrl} type="audio/mpeg" />
       </audio>
 
       {/* Header */}
-      <div className="flex justify-between items-start mb-4 gap-3">
+      <div className="flex justify-between items-start mb-4 gap-2 sm:gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-xl font-bold truncate overflow-hidden whitespace-nowrap" title={title}>
+          <h2 className="text-base sm:text-xl font-bold truncate" title={title}>
             {title}
           </h2>
-          <p className="text-sm text-gray-500">Duration: {formatTime(duration)}</p>
+          <p className="text-xs sm:text-sm text-gray-500">Duration: {formatTime(duration)}</p>
         </div>
-        <div className="flex-shrink-0 bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-bold">
+        <div className="flex-shrink-0 bg-purple-100 text-purple-700 px-2.5 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap">
           🪙 {rewardCoins}
         </div>
       </div>
 
-      {/* Tab Warning */}
       {tabWarning && (
-        <div className="mb-3 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm font-medium">
+        <div className="mb-3 px-3 sm:px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs sm:text-sm font-medium">
           ⚠️ Audio paused — you left this tab. Press Play to continue earning.
         </div>
       )}
 
-      {/* Volume Warning */}
       {volumeWarning && (
-        <div className="mb-3 px-4 py-2 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-700 text-sm font-medium">
+        <div className="mb-3 px-3 sm:px-4 py-2 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-700 text-xs sm:text-sm font-medium">
           🔊 Volume below 15%. Please increase to continue earning.
         </div>
       )}
 
-      {/* Audio Error with Retry */}
       {audioError && (
-        <div className="mb-3 px-4 py-2 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-700 text-sm font-medium">{audioError}</p>
+        <div className="mb-3 px-3 sm:px-4 py-2 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-700 text-xs sm:text-sm font-medium">{audioError}</p>
           <button
             onClick={handleRetry}
             className="mt-1 flex items-center gap-1 text-xs text-red-600 hover:text-red-800 font-semibold"
@@ -405,22 +465,15 @@ export default function AudioPlayer({
         </div>
       )}
 
-      {/* ✅ Reward Claimed badge with cooldown info */}
       {rewardClaimed && (
-        <div className="mb-3 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-green-700 text-sm font-semibold">
-            ✅ Reward claimed! Coins added to your wallet.
+        <div className="mb-3 px-3 sm:px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-green-700 text-xs sm:text-sm font-semibold">
+            ✅ Completed — reward already claimed.
           </p>
           {cooldownInfo.nextAvailable && (
-            <p className="text-xs text-green-600 mt-1">
-              ⏳ Next available: {cooldownInfo.nextAvailable.toLocaleDateString('en-PK', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-              {cooldownInfo.days && ` (${cooldownInfo.days} day${cooldownInfo.days > 1 ? 's' : ''} cooldown)`}
+            <p className="text-xs text-green-600 mt-1 break-words">
+              ⏳ Next available: {formatCooldownDate(cooldownInfo.nextAvailable)}
+              {cooldownInfo.days ? ` (${cooldownInfo.days} day${cooldownInfo.days > 1 ? 's' : ''} cooldown)` : ''}
             </p>
           )}
         </div>
@@ -434,47 +487,51 @@ export default function AudioPlayer({
         />
       </div>
 
-      <div className="flex justify-between text-sm text-gray-500 mb-4">
+      <div className="flex justify-between text-xs sm:text-sm text-gray-500 mb-4">
         <span>{formatTime(currentTime)}</span>
         <span>{formatTime(duration)}</span>
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 sm:gap-4">
         <button
           onClick={togglePlay}
-          disabled={!!audioError && !isSessionActive}
-          className="w-12 h-12 bg-purple-600 text-white rounded-full flex items-center justify-center hover:bg-purple-700 transition-colors disabled:opacity-50"
+          disabled={(!!audioError && !isSessionActive) || rewardClaimed}
+          className="w-11 h-11 sm:w-12 sm:h-12 flex-shrink-0 bg-purple-600 text-white rounded-full flex items-center justify-center hover:bg-purple-700 transition-colors disabled:opacity-50"
         >
           {audioLoading
             ? <Loader2 size={20} className="animate-spin" />
             : isPlaying
-            ? <Pause size={24} />
-            : <Play size={24} />
+            ? <Pause size={22} />
+            : <Play size={22} />
           }
         </button>
 
-        <div className="flex items-center gap-2 flex-1">
-          <button onClick={toggleMute} className="text-gray-500 hover:text-purple-600">
+        <div className="hidden sm:flex items-center gap-2 flex-1 min-w-0">
+          <button onClick={toggleMute} className="text-gray-500 hover:text-purple-600 flex-shrink-0">
             {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
           </button>
           <input
             type="range" min="0" max="1" step="0.01"
             value={isMuted ? 0 : volume}
             onChange={handleVolumeChange}
-            className="w-24 h-1 bg-gray-300 rounded-full appearance-none cursor-pointer accent-purple-600"
+            className="w-full max-w-[6rem] h-1 bg-gray-300 rounded-full appearance-none cursor-pointer accent-purple-600"
           />
-          <span className={`text-xs ${volume < 0.15 || isMuted ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
+          <span className={`text-xs flex-shrink-0 ${volume < 0.15 || isMuted ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
             {isMuted ? '0%' : `${Math.round(volume * 100)}%`}
           </span>
         </div>
 
-        <div className="text-sm text-gray-500 font-medium">
-          {isCompleted ? '✅ Done' : `${Math.round(progress)}%`}
+        {/* Compact mute-only control for very small screens */}
+        <button onClick={toggleMute} className="sm:hidden text-gray-500 hover:text-purple-600 flex-shrink-0">
+          {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+        </button>
+
+        <div className="text-xs sm:text-sm text-gray-500 font-medium flex-shrink-0">
+          {rewardClaimed ? '✅ Done' : `${Math.round(progress)}%`}
         </div>
       </div>
 
-      {/* How to Earn */}
       <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
         <p className="text-xs font-semibold text-amber-800 mb-1">📌 How to Earn:</p>
         <ul className="text-xs text-amber-700 space-y-0.5">
@@ -488,7 +545,7 @@ export default function AudioPlayer({
             {skipAttempts.current >= 1 ? '❌' : '✅'} Do not skip or fast-forward
           </li>
           <li className={isCompleted ? 'text-green-600 font-bold' : ''}>
-            {isCompleted ? '✅' : '⏳'} Complete 100% of the audio
+            {isCompleted ? '✅' : '⏳'} Complete 100% of the audio, then watch a short ad
           </li>
           {rewardClaimed && cooldownInfo.days && (
             <li className="text-purple-600 font-bold">
@@ -497,6 +554,18 @@ export default function AudioPlayer({
           )}
         </ul>
       </div>
+
+      {showAd && (
+        <AdModal onFinished={handleAdFinished} rewardCoins={rewardCoins} />
+      )}
+      {claimingReward && !showAd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white rounded-2xl p-6 flex flex-col items-center gap-3">
+            <Loader2 className="animate-spin text-purple-600" size={28} />
+            <p className="text-sm font-medium text-gray-700">Granting your reward…</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
