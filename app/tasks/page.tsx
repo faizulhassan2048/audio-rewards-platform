@@ -1,144 +1,192 @@
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import AudioPlayer from '@/components/audio/AudioPlayer';
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { toast } from 'sonner'
+import { Lock } from 'lucide-react'
+import LevelProgress from '@/components/tasks/LevelProgress'
+import LevelAudioCard from '@/components/tasks/LevelAudioCard'
+import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
+import AdModal from '@/components/audio/AdModal'
 
-interface Audio {
-  id: string;
-  title: string;
-  audio_url: string;
-  duration: number;
-  reward_coins: number;
+interface CurrentAudio {
+  id: string
+  title: string
+  audio_url: string
+  thumbnail_url?: string | null
+  duration_seconds: number
 }
 
+interface StatusResponse {
+  locked: boolean
+  locked_until?: string
+  level_complete?: boolean
+  reward_claimed?: boolean
+  level_name: string
+  completed_audios: number
+  total_audios: number
+  current_audio?: CurrentAudio | null
+}
+
+const REWARD_COINS = 45
+
 export default function TasksPage() {
-  const [audios, setAudios] = useState<Audio[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedAudio, setSelectedAudio] = useState<Audio | null>(null);
-  const [user, setUser] = useState<any>(null);
-  const supabase = createClient();
+  const [loading, setLoading] = useState(true)
+  const [status, setStatus] = useState<StatusResponse | null>(null)
+  const [showAd, setShowAd] = useState(false)
+  const [showComplete, setShowComplete] = useState(false)
+  const [countdown, setCountdown] = useState('')
+  const pendingClaimRef = useRef(false)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tasks/level/status')
+      const data = await res.json()
+      console.log('Status response:', data)
+      setStatus(data)
+
+      if (data.level_complete && !data.reward_claimed && !pendingClaimRef.current) {
+        pendingClaimRef.current = true
+        await claimReward()
+      }
+    } catch (error) {
+      console.error('Error fetching status:', error)
+      toast.error('Could not load task progress')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    loadData();
-  }, []);
+    fetchStatus()
+  }, [fetchStatus])
 
-  const loadData = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
+  // Countdown while locked
+  useEffect(() => {
+    if (!status?.locked || !status.locked_until) return
+    const tick = () => {
+      const diff = new Date(status.locked_until!).getTime() - Date.now()
+      if (diff <= 0) {
+        setCountdown('')
+        fetchStatus()
+        return
       }
-      setUser(user);
-
-      const { data: audiosData } = await supabase
-        .from('audios')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      setAudios(audiosData || []);
-    } catch (error) {
-      console.error('Error loading tasks:', error);
-    } finally {
-      setLoading(false);
+      const hours = Math.floor(diff / (1000 * 60 * 60))
+      const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+      setCountdown(`${hours}h ${mins}m`)
     }
-  };
+    tick()
+    const interval = setInterval(tick, 60000)
+    return () => clearInterval(interval)
+  }, [status?.locked, status?.locked_until, fetchStatus])
+
+  const claimReward = async () => {
+    try {
+      const res = await fetch('/api/tasks/level/claim', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        setShowComplete(true)
+      }
+    } catch {
+      toast.error('Could not claim reward')
+    } finally {
+      pendingClaimRef.current = false
+    }
+  }
+
+  const handleAudioFinished = async (audioId: string) => {
+    try {
+      const res = await fetch('/api/tasks/level/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audio_id: audioId }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        toast.error(data.error || 'Could not save progress')
+        return
+      }
+
+      const finishedCount = data.completed_audios
+      toast.success(
+        data.level_complete
+          ? `✅ Audio ${finishedCount} completed!`
+          : `✅ Audio ${finishedCount} completed! Audio ${finishedCount + 1} ready.`
+      )
+
+      if (data.show_ad) {
+        setShowAd(true)
+      } else if (data.level_complete) {
+        await fetchStatus()
+      } else {
+        setStatus((prev) => prev ? {
+          ...prev,
+          completed_audios: finishedCount,
+          current_audio: data.next_audio,
+        } : prev)
+      }
+    } catch {
+      toast.error('Network error')
+    }
+  }
+
+  const handleAdFinished = async () => {
+    setShowAd(false)
+    await fetchStatus()
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-600" />
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#6C63FF]" />
       </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="max-w-md mx-auto px-4 py-8 pb-24">
-        <h1 className="text-2xl font-bold mb-4">Tasks</h1>
-        <div className="text-center py-12 bg-gray-50 rounded-xl">
-          <p className="text-gray-500">Please login to view tasks</p>
-          <a href="/auth/login" className="mt-3 inline-block px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
-            Login
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  if (audios.length === 0) {
-    return (
-      <div className="max-w-md mx-auto px-4 py-8 pb-24">
-        <h1 className="text-2xl font-bold mb-6">🎧 Available Tasks</h1>
-        <div className="text-center py-12 bg-gray-50 rounded-xl">
-          <p className="text-gray-500">No tasks available right now</p>
-          <p className="text-sm text-gray-400 mt-1">Check back later for new audio</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (selectedAudio) {
-    return (
-      <div className="max-w-md mx-auto px-4 py-8 pb-24">
-        <button
-          onClick={() => setSelectedAudio(null)}
-          className="mb-4 text-sm text-purple-600 hover:text-purple-800 flex items-center gap-1"
-        >
-          ← Back to tasks
-        </button>
-        <AudioPlayer
-          audioId={selectedAudio.id}
-          audioUrl={selectedAudio.audio_url}
-          title={selectedAudio.title}
-          duration={selectedAudio.duration}
-          rewardCoins={selectedAudio.reward_coins}
-          onComplete={() => {
-            setSelectedAudio(null);
-            loadData();
-          }}
-        />
-      </div>
-    );
+    )
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-8 pb-24">
-      <h1 className="text-2xl font-bold mb-6">🎧 Available Tasks</h1>
-      
-      <div className="space-y-4">
-        {audios.map((audio) => (
-          <div key={audio.id} className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-all">
-            <div className="flex justify-between items-start">
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-gray-800 truncate">{audio.title}</h3>
-                <div className="flex items-center gap-3 mt-1">
-                  <span className="text-xs text-gray-500">
-                    ⏱️ {formatDuration(audio.duration)}
-                  </span>
-                  <span className="text-xs font-medium text-purple-600">
-                    🪙 {audio.reward_coins} coins
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedAudio(audio)}
-                className="px-4 py-1.5 bg-purple-600 text-white text-sm font-medium rounded-full hover:bg-purple-700 transition-colors whitespace-nowrap"
-              >
-                Listen
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-24">
+      <div className="max-w-md mx-auto space-y-5">
+        <LevelProgress
+          levelName="Bronze"
+          completed={status?.completed_audios || 0}
+          total={status?.total_audios || 9}
+        />
 
-function formatDuration(seconds: number): string {
-  if (!seconds) return '0:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+        {status?.locked && (
+          <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 text-center">
+            <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-[#6C63FF]/10 flex items-center justify-center">
+              <Lock className="w-6 h-6 text-[#6C63FF]" />
+            </div>
+            <p className="font-semibold text-gray-800 mb-1">🔄 Bronze Level completed!</p>
+            <p className="text-sm text-gray-500">Come back in {countdown || '...'}</p>
+          </div>
+        )}
+
+        {!status?.locked && status?.current_audio && (
+          <LevelAudioCard
+            audio={status.current_audio}
+            index={status.completed_audios}
+            total={status.total_audios}
+            onFinished={handleAudioFinished}
+          />
+        )}
+
+        {!status?.locked && !status?.current_audio && !status?.level_complete && (
+          <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 text-center text-sm text-gray-500">
+            No audios available for this level right now. Please check back later.
+          </div>
+        )}
+      </div>
+
+      {showAd && (
+        <AdModal onFinished={handleAdFinished} rewardCoins={0} />
+      )}
+
+      {showComplete && (
+        <LevelCompleteModal
+          rewardCoins={REWARD_COINS}
+          onClose={() => { setShowComplete(false); fetchStatus() }}
+        />
+      )}
+    </div>
+  )
 }
