@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, ListTodo, Wallet, User } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 const navItems = [
-  { name: 'Home', href: '/dashboard', icon: Home },  // ✅ Changed from '/' to '/dashboard'
+  { name: 'Home', href: '/dashboard', icon: Home },
   { name: 'Tasks', href: '/tasks', icon: ListTodo },
   { name: 'Wallet', href: '/wallet', icon: Wallet },
   { name: 'Profile', href: '/profile', icon: User },
@@ -13,10 +15,18 @@ const navItems = [
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const supabase = createClient();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  // Hide on auth pages
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setIsLoggedIn(!!data.session);
+    });
+  }, []);
+
+  // Hide on auth pages or if not logged in
   const authPages = ['/auth/login', '/auth/register', '/auth/callback'];
-  if (authPages.includes(pathname)) return null;
+  if (authPages.includes(pathname) || !isLoggedIn) return null;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-1 sm:px-4 z-50">

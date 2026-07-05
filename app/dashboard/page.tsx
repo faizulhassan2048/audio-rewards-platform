@@ -50,7 +50,7 @@ export default function DashboardPage() {
   const [checkinLoading, setCheckinLoading] = useState(false)
   const [showCoinAnim, setShowCoinAnim] = useState(false)
   
-  // ✅ Stats
+  // Stats
   const [referralCount, setReferralCount] = useState(0)
   const [earnings7d, setEarnings7d] = useState(0)
 
@@ -116,7 +116,7 @@ export default function DashboardPage() {
       setTransactions(txRes.data || [])
       setStreak(streakRes)
 
-      // ✅ Load referral count
+      // Load referral count
       const { count: referrals } = await supabase
         .from('referrals')
         .select('id', { count: 'exact', head: true })
@@ -125,7 +125,7 @@ export default function DashboardPage() {
 
       setReferralCount(referrals || 0)
 
-      // ✅ Load 7 days earnings
+      // Load 7 days earnings
       const sevenDaysAgo = new Date()
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
       
@@ -206,7 +206,7 @@ export default function DashboardPage() {
     </div>
   )
 
-  // ✅ Navigation items with active state
+  // Navigation items with active state
   const navItems = [
     { href: '/dashboard', icon: Home, label: 'Home' },
     { href: '/audio', icon: Headphones, label: 'Tasks' },
@@ -272,7 +272,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ✅ Stats Card - Quick Stats */}
+        {/* Stats Card - Quick Stats */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white rounded-2xl p-4 shadow border border-gray-100">
             <div className="flex items-center gap-2">
@@ -288,6 +288,16 @@ export default function DashboardPage() {
             </div>
             <p className="text-xs text-gray-500">Earned (7 days)</p>
           </div>
+        </div>
+
+        {/* ✅ Refer Button - Added */}
+        <div>
+          <Link href="/referral">
+            <button className="w-full py-3 bg-pink-500 text-white rounded-xl font-semibold hover:bg-pink-600 transition shadow-md flex items-center justify-center gap-2">
+              <Users className="w-5 h-5" />
+              Refer & Earn
+            </button>
+          </Link>
         </div>
 
         {/* Daily Check-in Card */}
@@ -425,7 +435,7 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* ✅ Bottom Navigation with Active State */}
+      {/* Bottom Navigation with Active State */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg z-50">
         <div className="flex justify-around items-center h-16 max-w-4xl mx-auto">
           {navItems.map((item) => {

@@ -47,27 +47,11 @@ export default function Home() {
         <p className="text-xl text-gray-600 mb-8">
           Earn real rewards by listening to audio content.
         </p>
-        
-        {/* Get Started Button */}
         <Link href={`/auth/register${refCode ? `?ref=${refCode}` : ''}`}>
           <button className="px-8 py-4 bg-purple-600 text-white rounded-lg text-lg hover:bg-purple-700">
             Get Started Free
           </button>
         </Link>
-
-        {/* Withdraw + Refer Buttons */}
-        <div className="flex flex-wrap justify-center gap-4 mt-6">
-          <Link href="/withdrawal">
-            <button className="px-6 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition shadow-md">
-              💰 Withdraw
-            </button>
-          </Link>
-          <Link href="/referral">
-            <button className="px-6 py-3 bg-pink-500 text-white rounded-xl font-semibold hover:bg-pink-600 transition shadow-md">
-              👥 Refer
-            </button>
-          </Link>
-        </div>
       </section>
     </main>
   );
