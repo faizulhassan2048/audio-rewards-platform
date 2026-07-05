@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Toaster } from "sonner";
-import BottomNav from "@/components/nav/BottomNav";
+import ConditionalBottomNav from "@/components/nav/ConditionalBottomNav";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -28,8 +28,8 @@ export default function RootLayout({
           {children}
         </main>
         
-        {/* Bottom Navigation */}
-        <BottomNav />
+        {/* Bottom Navigation - hidden on landing page */}
+        <ConditionalBottomNav />
         
         <Toaster position="top-right" richColors closeButton />
         <SpeedInsights />

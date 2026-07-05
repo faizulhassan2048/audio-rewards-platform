@@ -246,18 +246,20 @@ export default function DashboardPage() {
 
       <div className="max-w-4xl mx-auto px-4 py-5 space-y-4">
 
-        {/* Wallet Stats */}
+        {/* Balance */}
+        <div className="bg-gradient-to-br from-purple-600 to-purple-400 text-white rounded-2xl p-5 shadow-lg shadow-purple-200 relative overflow-hidden">
+          {showCoinAnim && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span className="text-4xl animate-bounce">🪙</span>
+            </div>
+          )}
+          <p className="text-purple-100 text-xs uppercase tracking-wider">Balance</p>
+          <p className="text-4xl font-bold mt-1">{Number(data?.coin_balance || 0).toLocaleString()}</p>
+          <p className="text-purple-200 text-xs mt-0.5">coins</p>
+        </div>
+
+        {/* Earned / Wallet / Refer & Earn */}
         <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-3 sm:col-span-1 bg-gradient-to-br from-purple-600 to-purple-400 text-white rounded-2xl p-5 shadow-lg shadow-purple-200 relative overflow-hidden">
-            {showCoinAnim && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <span className="text-4xl animate-bounce">🪙</span>
-              </div>
-            )}
-            <p className="text-purple-100 text-xs uppercase tracking-wider">Balance</p>
-            <p className="text-4xl font-bold mt-1">{Number(data?.coin_balance || 0).toLocaleString()}</p>
-            <p className="text-purple-200 text-xs mt-0.5">coins</p>
-          </div>
           <div className="bg-white rounded-2xl p-4 shadow border border-gray-100">
             <p className="text-gray-400 text-xs uppercase tracking-wider">Earned</p>
             <p className="text-2xl font-bold text-gray-800 mt-1">{Number(data?.total_earned || 0).toLocaleString()}</p>
@@ -268,6 +270,15 @@ export default function DashboardPage() {
               <p className="text-gray-400 text-xs uppercase tracking-wider">Wallet</p>
               <p className="text-2xl font-bold text-gray-800 mt-1">{Number(data?.total_withdrawn || 0).toLocaleString()}</p>
               <p className="text-blue-500 text-xs mt-1 flex items-center gap-1"><Wallet className="w-3 h-3" /> Withdrawn</p>
+            </Link>
+          </div>
+          <div className="bg-white rounded-2xl p-4 shadow border border-gray-100">
+            <Link href="/referral" className="block h-full">
+              <p className="text-gray-400 text-xs uppercase tracking-wider">Refer</p>
+              <p className="text-2xl font-bold text-gray-800 mt-1 flex items-center gap-1">
+                <Users className="w-5 h-5 text-pink-500" />
+              </p>
+              <p className="text-pink-500 text-xs mt-1 flex items-center gap-1"><Gift className="w-3 h-3" /> Refer & Earn</p>
             </Link>
           </div>
         </div>
@@ -288,16 +299,6 @@ export default function DashboardPage() {
             </div>
             <p className="text-xs text-gray-500">Earned (7 days)</p>
           </div>
-        </div>
-
-        {/* ✅ Refer Button - Added */}
-        <div>
-          <Link href="/referral">
-            <button className="w-full py-3 bg-pink-500 text-white rounded-xl font-semibold hover:bg-pink-600 transition shadow-md flex items-center justify-center gap-2">
-              <Users className="w-5 h-5" />
-              Refer & Earn
-            </button>
-          </Link>
         </div>
 
         {/* Daily Check-in Card */}
@@ -459,14 +460,6 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      {/* FAB */}
-      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50">
-        <Link href="/audio"
-          className="flex items-center gap-2 px-7 py-3.5 bg-gradient-to-r from-purple-600 to-purple-400 text-white rounded-full shadow-xl shadow-purple-300 hover:shadow-2xl hover:scale-105 transition-all font-semibold text-sm">
-          <Headphones className="w-5 h-5" />
-          Listen & Earn
-        </Link>
-      </div>
     </div>
   )
 }
