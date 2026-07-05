@@ -7,6 +7,7 @@ import LevelProgress from '@/components/tasks/LevelProgress'
 import LevelAudioCard from '@/components/tasks/LevelAudioCard'
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
 import AdModal from '@/components/audio/AdModal'
+import AdBanner from '@/components/ads/AdBanner'
 
 interface CurrentAudio {
   id: string
@@ -144,7 +145,11 @@ export default function TasksPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-24">
-      <div className="max-w-md mx-auto space-y-5">
+      <div className="max-w-md mx-auto space-y-3">
+
+        {/* ✅ TOP BANNER AD */}
+        <AdBanner position="top" />
+
         <LevelProgress
           levelName="Bronze"
           completed={status?.completed_audios || 0}
@@ -175,6 +180,10 @@ export default function TasksPage() {
             No audios available for this level right now. Please check back later.
           </div>
         )}
+
+        {/* ✅ BOTTOM BANNER AD */}
+        <AdBanner position="bottom" />
+
       </div>
 
       {showAd && (

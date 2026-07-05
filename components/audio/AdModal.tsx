@@ -5,17 +5,12 @@ import { useEffect, useRef, useState } from 'react';
 interface AdModalProps {
   onFinished: () => void;
   rewardCoins: number;
-  /** Ad length in seconds before "Continue" becomes clickable */
   adDurationSeconds?: number;
 }
 
-// Simple in-house countdown ad. Swap the contents of the
-// "AD CREATIVE GOES HERE" block below for a real network call
-// (Google AdSense rewarded ad, AdMob, etc.) — keep the
-// countdown/onFinished wiring the same so the reward flow
-// still fires only after the ad has actually been shown.
 export default function AdModal({ onFinished, rewardCoins, adDurationSeconds = 15 }: AdModalProps) {
   const [secondsLeft, setSecondsLeft] = useState(adDurationSeconds);
+  const [adLoaded, setAdLoaded] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -33,26 +28,54 @@ export default function AdModal({ onFinished, rewardCoins, adDurationSeconds = 1
     };
   }, []);
 
-  const canContinue = secondsLeft <= 0;
+  // Simulate ad load
+  useEffect(() => {
+    const timer = setTimeout(() => setAdLoaded(true), 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const canContinue = secondsLeft <= 0 && adLoaded;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 sm:p-4">
       <div className="w-full h-full sm:h-auto sm:max-w-sm bg-white sm:rounded-2xl flex flex-col overflow-hidden">
-        {/* ── AD CREATIVE GOES HERE ── */}
-        <div className="flex-1 sm:flex-none sm:aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-6 text-center">
-          <p className="text-sm uppercase tracking-wide opacity-80 mb-2">Advertisement</p>
-          <p className="text-lg font-semibold">Your rewarded ad goes here</p>
-          <p className="text-xs opacity-70 mt-2">
-            Replace this block with your ad network's rewarded-ad embed/SDK call.
-          </p>
+        
+        {/* ── ADSTERRA FULL SCREEN AD PLACEHOLDER ── */}
+        <div className="flex-1 sm:flex-none sm:aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-6 text-center relative">
+          
+          {/* Adsterra Ad Container */}
+          <div id="adsterra-fullscreen" className="w-full h-full flex items-center justify-center">
+            {!adLoaded ? (
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-10 w-10 border-2 border-white/30 border-t-white mx-auto mb-3" />
+                <p className="text-sm opacity-80">Loading ad...</p>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-4xl mb-3">📺</p>
+                <p className="text-sm font-medium">Adsterra Full Screen Ad</p>
+                <p className="text-xs opacity-70 mt-1">Replace with your Adsterra code</p>
+                
+                {/* ⚠️ REPLACE THIS WITH YOUR ADSTERRA FULL SCREEN CODE */}
+                <div className="mt-3 p-2 bg-white/10 rounded-lg text-xs">
+                  <code className="opacity-60">Adsterra Interstitial Code Here</code>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* Ad Timer Badge */}
+          <div className="absolute top-3 right-3 bg-black/50 text-white text-xs px-3 py-1 rounded-full">
+            {canContinue ? '✅ Done' : `${secondsLeft}s`}
+          </div>
         </div>
-        {/* ── END AD CREATIVE ── */}
+        {/* ── END ADSTERRA ── */}
 
         <div className="p-4 sm:p-5 border-t border-gray-100">
           <p className="text-sm text-gray-600 mb-3 text-center">
             {canContinue
-              ? `Watch complete — claim your 🪙 ${rewardCoins} coins!`
-              : `Reward available in ${secondsLeft}s…`}
+              ? `🎉 Watch complete — claim your 🪙 ${rewardCoins} coins!`
+              : `⏳ Reward available in ${secondsLeft}s…`}
           </p>
           <button
             onClick={onFinished}
