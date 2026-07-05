@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Home, ListTodo, Wallet, User } from 'lucide-react';
 
 const navItems = [
-  { name: 'Home', href: '/', icon: Home },
+  { name: 'Home', href: '/dashboard', icon: Home },  // ✅ Changed from '/' to '/dashboard'
   { name: 'Tasks', href: '/tasks', icon: ListTodo },
   { name: 'Wallet', href: '/wallet', icon: Wallet },
   { name: 'Profile', href: '/profile', icon: User },
@@ -15,7 +15,7 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   // Hide on auth pages
-  const authPages = ['/auth/login', '/auth/signup', '/auth/callback'];
+  const authPages = ['/auth/login', '/auth/register', '/auth/callback'];
   if (authPages.includes(pathname)) return null;
 
   return (
