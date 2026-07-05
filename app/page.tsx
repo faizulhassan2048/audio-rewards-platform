@@ -13,7 +13,7 @@ export default function Home() {
       {/* Navbar */}
       <nav className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/tasks" className="flex items-center gap-2">
             <Image 
               src="/logo.png" 
               alt="YouTask" 
