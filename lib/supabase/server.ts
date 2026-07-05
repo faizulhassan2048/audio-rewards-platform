@@ -12,20 +12,16 @@ export const createClient = async () => {
         getAll() {
           return cookieStore.getAll()
         },
-        setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
+        setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             )
           } catch {
-            // Server Component se call hone par set ignore hota hai — safe hai
+            // Ignore errors in Server Components
           }
         },
       },
     }
   )
 }
-
-
-
-
