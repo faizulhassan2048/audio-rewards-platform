@@ -13,7 +13,7 @@ export default function Home() {
       {/* Navbar */}
       <nav className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href="/tasks" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2">
             <Image 
               src="/logo.png" 
               alt="YouTask" 
@@ -47,6 +47,45 @@ export default function Home() {
         <p className="text-xl text-gray-600 mb-8">
           Earn real rewards by listening to audio content.
         </p>
+
+        {/* ✅ Yeh 4 buttons hain — Listen button yahan change karna hai */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto">
+          
+          {/* ✅ Listen Button — /audio se /tasks karein */}
+          <Link href="/tasks">
+            <div className="bg-white p-4 rounded-xl shadow hover:shadow-md transition cursor-pointer">
+              <div className="text-3xl mb-2">🎧</div>
+              <p className="font-semibold text-gray-800">Listen</p>
+              <p className="text-xs text-gray-500">Earn coins</p>
+            </div>
+          </Link>
+
+          <Link href="/wallet">
+            <div className="bg-white p-4 rounded-xl shadow hover:shadow-md transition cursor-pointer">
+              <div className="text-3xl mb-2">💰</div>
+              <p className="font-semibold text-gray-800">Wallet</p>
+              <p className="text-xs text-gray-500">Balance</p>
+            </div>
+          </Link>
+
+          <Link href="/profile">
+            <div className="bg-white p-4 rounded-xl shadow hover:shadow-md transition cursor-pointer">
+              <div className="text-3xl mb-2">👥</div>
+              <p className="font-semibold text-gray-800">Refer</p>
+              <p className="text-xs text-gray-500">Earn more</p>
+            </div>
+          </Link>
+
+          <Link href="/leaderboard">
+            <div className="bg-white p-4 rounded-xl shadow hover:shadow-md transition cursor-pointer">
+              <div className="text-3xl mb-2">🏆</div>
+              <p className="font-semibold text-gray-800">Rank</p>
+              <p className="text-xs text-gray-500">Top earners</p>
+            </div>
+          </Link>
+
+        </div>
+
         <Link href={`/auth/register${refCode ? `?ref=${refCode}` : ''}`}>
           <button className="px-8 py-4 bg-purple-600 text-white rounded-lg text-lg hover:bg-purple-700">
             Get Started Free
