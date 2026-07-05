@@ -52,7 +52,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* Hero Section — Sirf yeh rahega, 4 button nahi */}
+      {/* Hero Section */}
       <section className="max-w-4xl mx-auto px-4 py-20 text-center">
         <h1 className="text-5xl font-bold mb-6">
           Listen. <span className="text-purple-600">Earn.</span> Withdraw.
@@ -61,12 +61,25 @@ export default function Home() {
           Earn real rewards by listening to audio content.
         </p>
         
-        {/* ✅ Get Started Button */}
+        {/* Get Started Button */}
         <Link href={isLoggedIn ? "/dashboard" : `/auth/register${refCode ? `?ref=${refCode}` : ''}`}>
           <button className="px-8 py-4 bg-purple-600 text-white rounded-lg text-lg hover:bg-purple-700">
             {isLoggedIn ? "Go to Dashboard" : "Get Started Free"}
           </button>
         </Link>
+
+        {/* Footer Links */}
+        <div className="mt-12 pt-8 border-t border-gray-200 flex flex-wrap justify-center gap-6 text-sm text-gray-500">
+          <Link href="/privacy-policy" className="hover:text-purple-600 transition-colors">
+            Privacy Policy
+          </Link>
+          <Link href="/terms" className="hover:text-purple-600 transition-colors">
+            Terms of Service
+          </Link>
+          <a href="mailto:awaisealtaf@gmail.com" className="hover:text-purple-600 transition-colors">
+            Contact
+          </a>
+        </div>
       </section>
     </main>
   );
