@@ -29,14 +29,6 @@ interface Transaction {
   created_at: string
 }
 
-interface AudioItem {
-  id: string
-  title: string
-  duration_seconds: number
-  reward_coins: number
-  is_listened_today: boolean
-}
-
 interface StreakData {
   claimed: boolean
   current_streak: number
@@ -54,10 +46,13 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<DashboardData | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [audios, setAudios] = useState<AudioItem[]>([])
   const [streak, setStreak] = useState<StreakData | null>(null)
   const [checkinLoading, setCheckinLoading] = useState(false)
   const [showCoinAnim, setShowCoinAnim] = useState(false)
+  
+  // ✅ Stats
+  const [referralCount, setReferralCount] = useState(0)
+  const [earnings7d, setEarnings7d] = useState(0)
 
   useEffect(() => {
     loadDashboard()
@@ -95,7 +90,7 @@ export default function DashboardPage() {
       abortControllerRef.current = new AbortController()
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 8000)
 
-      const [profileRes, walletRes, txRes, audioRes, sessionRes, streakRes] = await Promise.all([
+      const [profileRes, walletRes, txRes, streakRes] = await Promise.all([
         supabase.from('users').select('username, full_name').eq('id', user.id).single(),
         supabase.from('wallets').select('coin_balance, total_earned, total_withdrawn').eq('user_id', user.id).single(),
         supabase.from('transactions')
@@ -103,23 +98,12 @@ export default function DashboardPage() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(5),
-        supabase.from('audios')
-          .select('id, title, duration_seconds, reward_coins')
-          .eq('is_active', true)
-          .limit(6),
-        supabase.from('audio_sessions')
-          .select('audio_id')
-          .eq('user_id', user.id)
-          .eq('reward_granted', true)
-          .gte('created_at', `${new Date().toISOString().split('T')[0]}T00:00:00`),
         fetch(`/api/checkin?user_id=${user.id}`, { 
           signal: abortControllerRef.current.signal,
         }).then(r => r.json()).catch(() => null),
       ])
 
       clearTimeout(timeoutId)
-
-      const listenedIds = new Set((sessionRes.data || []).map((s: any) => s.audio_id))
 
       setData({
         user_id: user.id,
@@ -130,10 +114,31 @@ export default function DashboardPage() {
         total_withdrawn: walletRes.data?.total_withdrawn || 0,
       })
       setTransactions(txRes.data || [])
-      setAudios((audioRes.data || []).map((a: any) => ({
-        ...a, is_listened_today: listenedIds.has(a.id),
-      })))
       setStreak(streakRes)
+
+      // ✅ Load referral count
+      const { count: referrals } = await supabase
+        .from('referrals')
+        .select('id', { count: 'exact', head: true })
+        .eq('referrer_id', user.id)
+        .eq('status', 'rewarded')
+
+      setReferralCount(referrals || 0)
+
+      // ✅ Load 7 days earnings
+      const sevenDaysAgo = new Date()
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+      
+      const { data: earningsData } = await supabase
+        .from('transactions')
+        .select('coins_amount')
+        .eq('user_id', user.id)
+        .gte('created_at', sevenDaysAgo.toISOString())
+        .neq('type', 'withdrawal')
+
+      const totalEarnings = earningsData?.reduce((sum, tx) => sum + tx.coins_amount, 0) || 0
+      setEarnings7d(totalEarnings)
+
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('Request timeout')
@@ -176,6 +181,8 @@ export default function DashboardPage() {
         } else {
           toast.success(`✅ Check-in done! +${result.coins_earned} coins earned!`)
         }
+        // Reload stats after check-in
+        await loadDashboard()
       } else {
         toast.error(result.error || 'Check-in failed')
       }
@@ -198,9 +205,6 @@ export default function DashboardPage() {
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600" />
     </div>
   )
-
-  const availableCount = audios.filter(a => !a.is_listened_today).length
-  const completedToday = audios.filter(a => a.is_listened_today).length
 
   // ✅ Navigation items with active state
   const navItems = [
@@ -265,6 +269,24 @@ export default function DashboardPage() {
               <p className="text-2xl font-bold text-gray-800 mt-1">{Number(data?.total_withdrawn || 0).toLocaleString()}</p>
               <p className="text-blue-500 text-xs mt-1 flex items-center gap-1"><Wallet className="w-3 h-3" /> Withdrawn</p>
             </Link>
+          </div>
+        </div>
+
+        {/* ✅ Stats Card - Quick Stats */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white rounded-2xl p-4 shadow border border-gray-100">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-purple-600" />
+              <p className="text-2xl font-bold">{referralCount}</p>
+            </div>
+            <p className="text-xs text-gray-500">Active Referrals</p>
+          </div>
+          <div className="bg-white rounded-2xl p-4 shadow border border-gray-100">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-green-600" />
+              <p className="text-2xl font-bold">{earnings7d}</p>
+            </div>
+            <p className="text-xs text-gray-500">Earned (7 days)</p>
           </div>
         </div>
 
@@ -343,58 +365,6 @@ export default function DashboardPage() {
                 </>
               )}
             </button>
-          </div>
-        </div>
-
-        {/* Audio Tasks */}
-        <div className="bg-white rounded-2xl shadow border border-gray-100 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-gray-800 flex items-center gap-2">
-              <Zap className="w-5 h-5 text-yellow-500" /> Today's Audio
-            </h3>
-            <span className="text-sm text-purple-600 font-semibold bg-purple-50 px-2 py-0.5 rounded-full">
-              {completedToday}/{audios.length}
-            </span>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5 mb-3">
-            <div
-              className="bg-gradient-to-r from-purple-600 to-purple-400 h-1.5 rounded-full transition-all"
-              style={{ width: audios.length > 0 ? `${(completedToday / audios.length) * 100}%` : '0%' }}
-            />
-          </div>
-          <div className="space-y-2">
-            {audios.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-4">No audio available yet.</p>
-            ) : (
-              audios.map((audio) => (
-                <div key={audio.id} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
-                  audio.is_listened_today
-                    ? 'bg-green-50 border-green-200'
-                    : 'bg-gray-50 border-gray-100 hover:border-purple-200'
-                }`}>
-                  <div className="flex items-center gap-2.5">
-                    {audio.is_listened_today
-                      ? <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-                      : <Circle className="w-5 h-5 text-gray-300 flex-shrink-0" />}
-                    <div>
-                      <p className="text-sm font-medium text-gray-700 line-clamp-1">{audio.title}</p>
-                      <p className="text-xs text-gray-400">{formatTime(audio.duration_seconds)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full">
-                      +{audio.reward_coins} 🪙
-                    </span>
-                    {!audio.is_listened_today && (
-                      <Link href={`/audio/${audio.id}`}
-                        className="text-xs bg-purple-600 text-white px-2.5 py-1 rounded-lg hover:bg-purple-700 transition-colors">
-                        Listen
-                      </Link>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
           </div>
         </div>
 
@@ -485,11 +455,6 @@ export default function DashboardPage() {
           className="flex items-center gap-2 px-7 py-3.5 bg-gradient-to-r from-purple-600 to-purple-400 text-white rounded-full shadow-xl shadow-purple-300 hover:shadow-2xl hover:scale-105 transition-all font-semibold text-sm">
           <Headphones className="w-5 h-5" />
           Listen & Earn
-          {availableCount > 0 && (
-            <span className="bg-white text-purple-600 text-xs font-bold px-2 py-0.5 rounded-full">
-              {availableCount}
-            </span>
-          )}
         </Link>
       </div>
     </div>
