@@ -1,16 +1,14 @@
 'use client';
 
-import { useState, useRef, useEffect, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, ArrowRight, Mail, Lock } from "lucide-react";
-import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { useDeviceFingerprint } from "@/lib/hooks/useDeviceFingerprint";
-
-const isDev = process.env.NODE_ENV === 'development';
+import { Turnstile } from "@marsidev/react-turnstile";
 
 // Separate component for search params handling
 function SearchParamsHandler() {
@@ -31,44 +29,39 @@ function SearchParamsHandler() {
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
-  const captchaRef = useRef<HCaptcha>(null);
   const { fingerprint } = useDeviceFingerprint();
 
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const resetCaptcha = () => {
-    captchaRef.current?.resetCaptcha();
-    setCaptchaToken(null);
-  };
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!isDev && !captchaToken) {
-      toast.error("Please complete the captcha");
+    if (!captchaToken) {
+      toast.error("Please complete the captcha verification.");
       return;
     }
 
     setLoading(true);
 
     try {
-      if (!isDev) {
-        const captchaRes = await fetch("/api/auth/verify-captcha", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: captchaToken }),
-        });
-        const captchaData = await captchaRes.json();
-        if (!captchaData.success) {
-          toast.error("Captcha verification failed. Please try again.");
-          resetCaptcha();
-          setLoading(false);
-          return;
-        }
+      // ✅ Verify captcha token first
+      const captchaRes = await fetch("/api/verify-captcha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: captchaToken }),
+      });
+
+      const captchaData = await captchaRes.json();
+
+      if (!captchaData.success) {
+        toast.error("Captcha verification failed. Please try again.");
+        setCaptchaToken(null);
+        setLoading(false);
+        return;
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -93,7 +86,6 @@ export default function LoginPage() {
         } else {
           toast.error(error.message);
         }
-        resetCaptcha();
         setLoading(false);
         return;
       }
@@ -211,18 +203,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {!isDev && (
-              <div className="flex justify-center py-2">
-                <HCaptcha
-                  ref={captchaRef}
-                  sitekey={process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY!}
-                  onVerify={(token) => setCaptchaToken(token)}
-                  onExpire={() => setCaptchaToken(null)}
-                  onError={() => setCaptchaToken(null)}
-                />
-              </div>
-            )}
-
             <div className="flex items-center justify-between text-sm">
               <label className="flex items-center gap-2 cursor-pointer group">
                 <input
@@ -239,9 +219,19 @@ export default function LoginPage() {
               </Link>
             </div>
 
+            {/* ✅ Turnstile Captcha */}
+            <div className="flex justify-center">
+              <Turnstile
+                siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!}
+                onSuccess={(token) => setCaptchaToken(token)}
+                onExpire={() => setCaptchaToken(null)}
+                options={{ theme: "auto" }}
+              />
+            </div>
+
             <button
               type="submit"
-              disabled={loading || (!isDev && !captchaToken)}
+              disabled={loading || !captchaToken}
               className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-purple-400 text-white rounded-xl font-semibold hover:shadow-xl hover:shadow-purple-500/30 hover:scale-[1.02] transition-all duration-300 flex items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (

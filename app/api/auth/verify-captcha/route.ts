@@ -8,17 +8,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'No token' }, { status: 400 });
     }
 
-    // ✅ Development mein captcha bypass karo
-    if (process.env.NODE_ENV === 'development') {
-      return NextResponse.json({ success: true });
-    }
-
-    const secret = process.env.HCAPTCHA_SECRET_KEY;
+    const secret = process.env.TURNSTILE_SECRET_KEY;
     if (!secret) {
       return NextResponse.json({ success: false, error: 'Secret key missing' }, { status: 500 });
     }
 
-    const response = await fetch('https://api.hcaptcha.com/siteverify', {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',

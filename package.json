@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@fingerprintjs/fingerprintjs": "^5.2.0",
-    "@hcaptcha/react-hcaptcha": "^2.0.2",
     "@hookform/resolvers": "^3.9.0",
+    "@marsidev/react-turnstile": "^1.5.3",
     "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-slot": "^1.1.0",
     "@supabase/ssr": "^0.12.0",
