@@ -226,15 +226,15 @@ export default function ReferralPage() {
             </div>
             <div className="flex items-start gap-3">
               <span className="bg-purple-100 text-purple-600 font-bold rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs">2</span>
-              <p>Friend signs up using your link</p>
+              <p>Friends will sign up using your link</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="bg-purple-100 text-purple-600 font-bold rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs">3</span>
-              <p>Friend completes tasks for <strong>7 days</strong> daily</p>
+              <p>Friends will complete all  tasks for<strong>7 days</strong> daily</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="bg-purple-100 text-purple-600 font-bold rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs">4</span>
-              <p>🎉 <strong>Both</strong> get <strong>30 coins</strong> each!</p>
+              <p>🎉 <strong>Both will</strong> get <strong>30 coins</strong> each!</p>
             </div>
             <div className="flex items-start gap-3">
               <span className="bg-green-100 text-green-600 font-bold rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs">⭐</span>
