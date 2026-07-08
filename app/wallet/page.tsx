@@ -123,7 +123,9 @@ export default function WalletPage() {
           <p className="text-5xl font-bold mb-1">
             {Number(wallet?.coin_balance || 0).toLocaleString()}
           </p>
-          <p className="text-purple-200 text-sm">coins</p>
+          <p className="text-purple-200 text-sm">
+            coins <span className="text-purple-100">≈ Rs {(Number(wallet?.coin_balance || 0) * 0.5).toLocaleString()} PKR</span>
+          </p>
 
           <div className="mt-5 grid grid-cols-2 gap-3">
             <div className="bg-white/15 rounded-xl p-3">
