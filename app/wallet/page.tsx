@@ -222,27 +222,6 @@ export default function WalletPage() {
           </div>
         </div>
 
-        {/* ✅ Referral section moved inside Wallet */}
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-          <div className="flex items-start gap-3">
-            <div className="bg-amber-100 p-2 rounded-full">
-              <Users className="w-5 h-5 text-amber-700" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-amber-800">👥 Refer & Earn</p>
-              <p className="text-xs text-amber-700 mt-0.5">
-                Share your referral link and earn <strong>50 coins</strong> per referral!
-              </p>
-              <Link
-                href="/profile"
-                className="mt-2 inline-block text-xs font-medium text-amber-700 hover:text-amber-900 underline"
-              >
-                Get Referral Link →
-              </Link>
-            </div>
-          </div>
-        </div>
-
       </div>
     </div>
   )
