@@ -323,11 +323,11 @@ export default function WithdrawalPage() {
             <p className="font-semibold mb-1">Withdrawal Info</p>
             <ul className="space-y-0.5 text-blue-600">
               {/* 🔄 CHANGED: Updated text with new rates */}
-              <li>• First withdrawal: minimum 1,500 coins (PKR 750)</li>
-              <li>• Subsequent withdrawals: minimum 500 coins (PKR 250)</li>
-              <li>• Rate: 100 coins = PKR 50</li>
-              <li>• Max 1 request per day</li>
-              <li>• First withdrawal: manual verify (24-48 hrs)</li>
+              <li>First withdrawal: minimum 1,500 coins (PKR 750)</li>
+              <li>Subsequent withdrawals: minimum 500 coins (PKR 250)</li>
+              <li>Rate: 100 coins = PKR 50</li>
+              <li>Max 1 request per day</li>
+              <li>First withdrawal: manual verify (24-48 hrs)</li>
             </ul>
           </div>
         </div>

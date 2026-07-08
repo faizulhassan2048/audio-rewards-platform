@@ -6,6 +6,9 @@ const supabaseAdmin = createAdminClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// 🔄 NEW: Rate constants (matching withdrawal route)
+const COINS_TO_PKR = 0.50;  // 100 coins = PKR 50
+
 // GET — all withdrawals with filters
 export async function GET(req: Request) {
   try {
@@ -159,7 +162,7 @@ export async function PATCH(req: Request) {
         .eq('reference_id', withdrawal_id);
     }
 
-    // ✅ Send Email Notification with HTML Template
+    // ✅ Send Email Notification to USER with HTML Template
     try {
       const userEmail = withdrawal.user?.email;
       const userName = withdrawal.user?.full_name || withdrawal.user?.username || 'User';
@@ -253,6 +256,67 @@ export async function PATCH(req: Request) {
     } catch (emailErr) {
       console.error('Email error:', emailErr);
       // Don't fail the request if email fails
+    }
+
+    // 🔔 NEW: Send ADMIN Notification about status change
+    try {
+      const adminEmail = process.env.ADMIN_EMAIL || 'admin@youtask.com';
+      const adminName = 'Admin';
+
+      const actionMessages = {
+        approved: '✅ Withdrawal has been APPROVED',
+        rejected: '❌ Withdrawal has been REJECTED',
+        processing: '⏳ Withdrawal is now PROCESSING',
+        paid: '💰 Withdrawal has been PAID',
+      };
+
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        },
+        body: JSON.stringify({
+          from: `YouTask <${process.env.FROM_EMAIL || 'noreply@youtask.com'}>`,
+          to: adminEmail,
+          subject: `🔔 Withdrawal ${action.toUpperCase()} - ${withdrawal.user?.username || 'User'}`,
+          html: `
+            <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;background:#f8f9fa;border-radius:12px">
+              <div style="background:#6C63FF;padding:20px;border-radius:12px 12px 0 0;text-align:center;color:white">
+                <h1 style="margin:0;font-size:24px">Withdrawal Status Updated</h1>
+              </div>
+              <div style="background:white;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">
+                <p style="font-size:16px;color:#1f2937">Hi ${adminName},</p>
+                <p style="font-size:16px;color:#4b5563">${actionMessages[action as keyof typeof actionMessages] || 'Withdrawal status updated'}</p>
+                
+                <div style="background:#f3f4f6;padding:16px;border-radius:8px;margin:16px 0">
+                  <table style="width:100%;border-collapse:collapse;font-size:14px">
+                    <tr><td style="padding:6px;color:#6b7280">Withdrawal ID</td><td style="padding:6px;font-weight:bold">${withdrawal_id}</td></tr>
+                    <tr><td style="padding:6px;color:#6b7280">User</td><td style="padding:6px;font-weight:bold">${withdrawal.user?.username || withdrawal.user?.full_name || 'Unknown'}</td></tr>
+                    <tr><td style="padding:6px;color:#6b7280">Email</td><td style="padding:6px;font-weight:bold">${withdrawal.user?.email || 'No email'}</td></tr>
+                    <tr><td style="padding:6px;color:#6b7280">Amount</td><td style="padding:6px;font-weight:bold">${withdrawal.amount_coins} coins (PKR ${withdrawal.amount_pkr})</td></tr>
+                    <tr><td style="padding:6px;color:#6b7280">Method</td><td style="padding:6px;font-weight:bold">${withdrawal.method.toUpperCase()}</td></tr>
+                    <tr><td style="padding:6px;color:#6b7280">Account</td><td style="padding:6px;font-weight:bold">${withdrawal.account_number}</td></tr>
+                    <tr><td style="padding:6px;color:#6b7280">New Status</td><td style="padding:6px"><span style="background:${action === 'approved' ? '#D1FAE5' : action === 'rejected' ? '#FEE2E2' : action === 'paid' ? '#EDE9FE' : '#DBEAFE'};color:${action === 'approved' ? '#065F46' : action === 'rejected' ? '#991B1B' : action === 'paid' ? '#5B21B6' : '#1E40AF'};padding:4px 12px;border-radius:4px;font-weight:bold">${action.toUpperCase()}</span></td></tr>
+                    ${admin_note ? `<tr><td style="padding:6px;color:#6b7280">Admin Note</td><td style="padding:6px;font-weight:bold">${admin_note}</td></tr>` : ''}
+                    ${payment_reference ? `<tr><td style="padding:6px;color:#6b7280">Payment Reference</td><td style="padding:6px;font-weight:bold">${payment_reference}</td></tr>` : ''}
+                  </table>
+                </div>
+                
+                <a href="${process.env.NEXT_PUBLIC_APP_URL}/admin/withdrawals" 
+                   style="background:#6C63FF;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;display:inline-block">
+                  View All Withdrawals
+                </a>
+                
+                <hr style="border:1px solid #f3f4f6;margin:16px 0">
+                <p style="color:#9ca3af;font-size:12px;text-align:center">YouTask — Listen. Earn. Withdraw.</p>
+              </div>
+            </div>
+          `,
+        }),
+      });
+    } catch (adminEmailErr) {
+      console.error('Admin notification email failed:', adminEmailErr);
     }
 
     return NextResponse.json({ 
