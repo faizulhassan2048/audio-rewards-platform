@@ -4,24 +4,24 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { User, Mail, Calendar, LogOut, Copy, Check, Users, Gift, Settings, Edit, Lock } from 'lucide-react';
+import {
+  Mail, Calendar, LogOut, Settings, Edit, Lock,
+  ShieldCheck, FileText, Phone, MessageCircle, ChevronRight, ChevronDown
+} from 'lucide-react';
 import { toast } from 'sonner';
+
+const CONTACT_EMAIL = 'awaisealtaf@gmail.com';
+const CONTACT_WHATSAPP = '923267886564'; // country code + number, no leading 0 or +
 
 export default function ProfilePage() {
   const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
-  const [referralCode, setReferralCode] = useState<string>('');
-  const [copied, setCopied] = useState(false);
-  const [referralStats, setReferralStats] = useState({
-    total: 0,
-    active: 0,
-    rewarded: 0,
-  });
 
   // Settings states
   const [showSettings, setShowSettings] = useState(false);
+  const [showContact, setShowContact] = useState(false);
   const [showNameModal, setShowNameModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newName, setNewName] = useState('');
@@ -45,28 +45,7 @@ export default function ProfilePage() {
         .eq('id', user.id)
         .single();
 
-      // Get referral code
-      const { data: referralData } = await supabase
-        .from('referrals')
-        .select('referral_code')
-        .eq('referrer_id', user.id)
-        .maybeSingle();
-
-      // Get referral stats
-      const { data: referrals } = await supabase
-        .from('referrals')
-        .select('status')
-        .eq('referrer_id', user.id);
-
-      const stats = {
-        total: referrals?.length || 0,
-        active: referrals?.filter((r: any) => r.status === 'active' || r.status === 'qualified').length || 0,
-        rewarded: referrals?.filter((r: any) => r.status === 'rewarded').length || 0,
-      };
-
       setUser({ ...user, ...profile });
-      setReferralCode(referralData?.referral_code || user.id);
-      setReferralStats(stats);
       setNewName(profile?.full_name || '');
     } catch (error) {
       console.error('Profile error:', error);
@@ -78,14 +57,6 @@ export default function ProfilePage() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/');
-  };
-
-  const copyReferralLink = () => {
-    const link = `${window.location.origin}/auth/register?ref=${referralCode}`;
-    navigator.clipboard.writeText(link);
-    setCopied(true);
-    toast.success('Referral link copied!');
-    setTimeout(() => setCopied(false), 3000);
   };
 
   // Update Name
@@ -133,7 +104,6 @@ export default function ProfilePage() {
 
     setUpdating(true);
     try {
-      // First, re-authenticate with current password
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: user.email,
         password: currentPassword,
@@ -145,7 +115,6 @@ export default function ProfilePage() {
         return;
       }
 
-      // Update password
       const { error } = await supabase.auth.updateUser({
         password: newPassword
       });
@@ -212,7 +181,76 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Settings Panel */}
+        {/* Privacy Policy / Terms of Use / Contact */}
+        <div className="bg-white rounded-2xl shadow overflow-hidden divide-y divide-gray-100">
+          <Link
+            href="/privacy-policy"
+            className="w-full flex items-center justify-between gap-3 p-4 hover:bg-gray-50 transition"
+          >
+            <div className="flex items-center gap-3">
+              <ShieldCheck className="w-5 h-5 text-gray-600" />
+              <span className="font-medium text-gray-800">Privacy Policy</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+          </Link>
+
+          <Link
+            href="/terms"
+            className="w-full flex items-center justify-between gap-3 p-4 hover:bg-gray-50 transition"
+          >
+            <div className="flex items-center gap-3">
+              <FileText className="w-5 h-5 text-gray-600" />
+              <span className="font-medium text-gray-800">Terms of Use</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+          </Link>
+
+          <div>
+            <button
+              onClick={() => setShowContact(!showContact)}
+              className="w-full flex items-center justify-between gap-3 p-4 hover:bg-gray-50 transition"
+            >
+              <div className="flex items-center gap-3">
+                <Phone className="w-5 h-5 text-gray-600" />
+                <span className="font-medium text-gray-800">Contact</span>
+              </div>
+              {showContact ? (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+
+            {showContact && (
+              <div className="border-t border-gray-100 divide-y divide-gray-100">
+                <a
+                  href={`mailto:${CONTACT_EMAIL}`}
+                  className="w-full flex items-center gap-3 p-4 hover:bg-purple-50 transition"
+                >
+                  <Mail className="w-5 h-5 text-purple-600" />
+                  <div className="text-left">
+                    <p className="font-medium text-gray-800">Email Us</p>
+                    <p className="text-xs text-gray-400">{CONTACT_EMAIL}</p>
+                  </div>
+                </a>
+                <a
+                  href={`https://wa.me/${CONTACT_WHATSAPP}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center gap-3 p-4 hover:bg-purple-50 transition"
+                >
+                  <MessageCircle className="w-5 h-5 text-green-600" />
+                  <div className="text-left">
+                    <p className="font-medium text-gray-800">WhatsApp Us</p>
+                    <p className="text-xs text-gray-400">+{CONTACT_WHATSAPP}</p>
+                  </div>
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Settings Panel — kept last */}
         <div className="bg-white rounded-2xl shadow overflow-hidden">
           <button
             onClick={() => setShowSettings(!showSettings)}
@@ -264,50 +302,6 @@ export default function ProfilePage() {
               </button>
             </div>
           )}
-        </div>
-
-        {/* Referral Section */}
-        <div className="bg-white rounded-2xl shadow p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Users className="w-5 h-5 text-pink-600" />
-            <h3 className="font-semibold text-gray-800">Referral Program</h3>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <p className="text-xl font-bold text-gray-800">{referralStats.total}</p>
-              <p className="text-xs text-gray-500">Total</p>
-            </div>
-            <div className="bg-green-50 rounded-xl p-3 text-center">
-              <p className="text-xl font-bold text-green-600">{referralStats.active}</p>
-              <p className="text-xs text-gray-500">Active</p>
-            </div>
-            <div className="bg-purple-50 rounded-xl p-3 text-center">
-              <p className="text-xl font-bold text-purple-600">{referralStats.rewarded}</p>
-              <p className="text-xs text-gray-500">Rewarded</p>
-            </div>
-          </div>
-
-          {/* Referral Link */}
-          <div className="flex items-center gap-2 bg-gray-50 rounded-xl p-3">
-            <input
-              type="text"
-              value={`${window?.location?.origin || ''}/auth/register?ref=${referralCode}`}
-              readOnly
-              className="flex-1 bg-transparent text-xs text-gray-600 outline-none truncate"
-            />
-            <button
-              onClick={copyReferralLink}
-              className="flex-shrink-0 px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1"
-            >
-              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-          <p className="text-xs text-gray-400 mt-2">
-            🎁 Share your link and earn <strong className="text-purple-600">50 coins</strong> per referral!
-          </p>
         </div>
       </div>
 
