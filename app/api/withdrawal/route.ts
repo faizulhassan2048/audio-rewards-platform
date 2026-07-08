@@ -7,9 +7,15 @@ const supabaseAdmin = createAdminClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const COINS_TO_PKR = 0.10;  // 100 coins = 10 PKR
-const MIN_COINS = 100;
-const MAX_PER_DAY = 3;
+// 🔄 CHANGED: New rate 100 coins = PKR 50
+const COINS_TO_PKR = 0.50;  // 100 coins = PKR 50
+
+// 🔄 CHANGED: New minimum amounts
+const MIN_COINS_FIRST = 1500;      // 1500 coins = PKR 750
+const MIN_COINS_SUBSEQUENT = 500;  // 500 coins = PKR 250
+
+// 🔄 CHANGED: Max 1 per day
+const MAX_PER_DAY = 1;
 
 // GET — withdrawal history
 export async function GET(req: Request) {
@@ -26,7 +32,14 @@ export async function GET(req: Request) {
       .limit(20);
 
     if (error) throw error;
-    return NextResponse.json({ withdrawals: data || [] });
+    
+    // Return is_first_withdrawal flag
+    const isFirst = (data || []).length === 0;
+    
+    return NextResponse.json({ 
+      withdrawals: data || [],
+      is_first_withdrawal: isFirst
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
@@ -53,8 +66,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'All fields required' }, { status: 400 });
     }
 
+    // ── Check if first withdrawal ──────────────────────────────
+    const { count: prevCount } = await supabaseAdmin
+      .from('withdrawals')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user_id);
+
+    const isFirst = (prevCount || 0) === 0;
+    
+    // Dynamic minimum based on first/subsequent
+    const MIN_COINS = isFirst ? MIN_COINS_FIRST : MIN_COINS_SUBSEQUENT;
+
     if (amount_coins < MIN_COINS) {
-      return NextResponse.json({ error: `Minimum withdrawal is ${MIN_COINS} coins` }, { status: 400 });
+      return NextResponse.json({ 
+        error: isFirst 
+          ? `First withdrawal minimum is ${MIN_COINS_FIRST} coins (PKR ${(MIN_COINS_FIRST * COINS_TO_PKR).toFixed(0)})` 
+          : `Minimum withdrawal is ${MIN_COINS_SUBSEQUENT} coins (PKR ${(MIN_COINS_SUBSEQUENT * COINS_TO_PKR).toFixed(0)})` 
+      }, { status: 400 });
     }
 
     if (method === 'bank_transfer' && !bank_name) {
@@ -69,7 +97,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // ── Rate limit: max 3 per day ───────────────────────────────
+    // Rate limit: max 1 per day
     const today = new Date().toISOString().split('T')[0];
     const { count } = await supabaseAdmin
       .from('withdrawals')
@@ -78,7 +106,9 @@ export async function POST(req: Request) {
       .gte('created_at', `${today}T00:00:00`);
 
     if ((count || 0) >= MAX_PER_DAY) {
-      return NextResponse.json({ error: 'Maximum 3 withdrawal requests per day allowed' }, { status: 429 });
+      return NextResponse.json({ 
+        error: `Maximum ${MAX_PER_DAY} withdrawal request per day allowed` 
+      }, { status: 429 });
     }
 
     // ── Wallet check ────────────────────────────────────────────
@@ -106,14 +136,6 @@ export async function POST(req: Request) {
     if (sameAccount && sameAccount.length > 0) {
       console.warn(`Multi-account detected: ${user_id} using same ${method} account`);
     }
-
-    // ── First withdrawal check ──────────────────────────────────
-    const { count: prevCount } = await supabaseAdmin
-      .from('withdrawals')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user_id);
-
-    const isFirst = (prevCount || 0) === 0;
 
     // ── Calculate PKR ───────────────────────────────────────────
     const amount_pkr = amount_coins * COINS_TO_PKR;
@@ -165,7 +187,7 @@ export async function POST(req: Request) {
       balance_after: newBalance,
       reference_id: withdrawal.id,
       reference_type: 'withdrawal',
-      description: `Withdrawal request via ${method} — ${amount_coins} coins`,
+      description: `Withdrawal request via ${method} — ${amount_coins} coins (PKR ${amount_pkr.toFixed(2)})`,
     });
 
     // ── Send email notification ─────────────────────────────────

@@ -47,6 +47,9 @@ export default function WithdrawalPage() {
   const [balance, setBalance] = useState(0)
   const [pending, setPending] = useState(0)
   const [history, setHistory] = useState<WithdrawalHistory[]>([])
+  
+  // Track if first withdrawal
+  const [isFirstWithdrawal, setIsFirstWithdrawal] = useState(true)
 
   const [form, setForm] = useState({
     amount_coins: '',
@@ -56,8 +59,12 @@ export default function WithdrawalPage() {
     bank_name: '',
   })
 
-  const COINS_TO_PKR = 0.10
-  const MIN_COINS = 100
+  // 🔄 CHANGED: New rate 100 coins = PKR 50
+  const COINS_TO_PKR = 0.50  // 100 coins = PKR 50
+  
+  // 🔄 CHANGED: New minimum amounts
+  const MIN_COINS_FIRST = 1500       // 1500 coins = PKR 750
+  const MIN_COINS_SUBSEQUENT = 500   // 500 coins = PKR 250
 
   useEffect(() => { loadData() }, [])
 
@@ -69,12 +76,16 @@ export default function WithdrawalPage() {
 
       const [walletRes, historyRes] = await Promise.all([
         supabase.from('wallets').select('coin_balance, pending_withdrawal').eq('user_id', user.id).single(),
-        fetch(`/api/withdrawal?user_id=${user.id}`).then(r => r.json()),
+        fetch(`/api/withdrawals?user_id=${user.id}`).then(r => r.json()),
       ])
 
       setBalance(walletRes.data?.coin_balance || 0)
       setPending(walletRes.data?.pending_withdrawal || 0)
       setHistory(historyRes.withdrawals || [])
+      
+      // Check if first withdrawal
+      setIsFirstWithdrawal((historyRes.withdrawals || []).length === 0)
+      
     } catch {
       toast.error('Error loading data')
     } finally {
@@ -82,14 +93,29 @@ export default function WithdrawalPage() {
     }
   }
 
+  // Get dynamic minimum amount
+  const getMinCoins = () => {
+    return isFirstWithdrawal ? MIN_COINS_FIRST : MIN_COINS_SUBSEQUENT
+  }
+
+  // Get dynamic minimum message
+  const getMinMessage = () => {
+    if (isFirstWithdrawal) {
+      return `First withdrawal minimum ${MIN_COINS_FIRST} coins (PKR ${(MIN_COINS_FIRST * COINS_TO_PKR).toFixed(0)})`
+    }
+    return `Minimum ${MIN_COINS_SUBSEQUENT} coins (PKR ${(MIN_COINS_SUBSEQUENT * COINS_TO_PKR).toFixed(0)})`
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!userId) return
 
     const coins = parseInt(form.amount_coins)
+    const minCoins = getMinCoins()
 
-    if (!coins || coins < MIN_COINS) {
-      toast.error(`Minimum withdrawal is ${MIN_COINS} coins`)
+    // Dynamic minimum validation
+    if (!coins || coins < minCoins) {
+      toast.error(`Minimum withdrawal is ${minCoins} coins${isFirstWithdrawal ? ' for first withdrawal' : ''}`)
       return
     }
     if (coins > balance) {
@@ -103,7 +129,7 @@ export default function WithdrawalPage() {
 
     setSubmitting(true)
     try {
-      const res = await fetch('/api/withdrawal', {
+      const res = await fetch('/api/withdrawals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,6 +159,7 @@ export default function WithdrawalPage() {
   }
 
   const pkrAmount = (parseInt(form.amount_coins) || 0) * COINS_TO_PKR
+  const minCoins = getMinCoins()
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
@@ -173,21 +200,7 @@ export default function WithdrawalPage() {
           )}
         </div>
 
-        {/* Info box */}
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
-          <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-blue-700">
-            <p className="font-semibold mb-1">Withdrawal Info</p>
-            <ul className="space-y-0.5 text-blue-600">
-              <li>• Minimum: {MIN_COINS} coins (PKR {(MIN_COINS * COINS_TO_PKR).toFixed(0)})</li>
-              <li>• Rate: 100 coins = PKR {(100 * COINS_TO_PKR).toFixed(0)}</li>
-              <li>• Max 3 requests per day</li>
-              <li>• First withdrawal: manual verify (24-48 hrs)</li>
-            </ul>
-          </div>
-        </div>
-
-        {/* Form */}
+        {/* Form - Now comes BEFORE Info Box */}
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow border border-gray-100 p-5 space-y-4">
           <h2 className="font-bold text-gray-800">New Withdrawal Request</h2>
 
@@ -198,9 +211,9 @@ export default function WithdrawalPage() {
             </label>
             <input
               type="number"
-              min={MIN_COINS}
+              min={minCoins}
               max={balance}
-              placeholder={`Min ${MIN_COINS} coins`}
+              placeholder={getMinMessage()}
               value={form.amount_coins}
               onChange={(e) => setForm({ ...form, amount_coins: e.target.value })}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all"
@@ -211,6 +224,12 @@ export default function WithdrawalPage() {
                 = PKR {pkrAmount.toFixed(2)}
               </p>
             )}
+            {/* Show minimum requirement message */}
+            <p className="text-xs text-gray-500 mt-1 ml-1">
+              {isFirstWithdrawal 
+                ? `🔵 First withdrawal: minimum ${MIN_COINS_FIRST} coins (PKR ${(MIN_COINS_FIRST * COINS_TO_PKR).toFixed(0)})` 
+                : `🟢 Subsequent withdrawals: minimum ${MIN_COINS_SUBSEQUENT} coins (PKR ${(MIN_COINS_SUBSEQUENT * COINS_TO_PKR).toFixed(0)})`}
+            </p>
           </div>
 
           {/* Method */}
@@ -286,7 +305,7 @@ export default function WithdrawalPage() {
 
           <button
             type="submit"
-            disabled={submitting || !form.amount_coins || balance < MIN_COINS}
+            disabled={submitting || !form.amount_coins || balance < minCoins}
             className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-purple-400 text-white rounded-xl font-semibold hover:shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
           >
             {submitting ? (
@@ -296,6 +315,22 @@ export default function WithdrawalPage() {
             )}
           </button>
         </form>
+
+        {/* Info box - Now comes AFTER Form */}
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
+          <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-blue-700">
+            <p className="font-semibold mb-1">Withdrawal Info</p>
+            <ul className="space-y-0.5 text-blue-600">
+              {/* 🔄 CHANGED: Updated text with new rates */}
+              <li>• First withdrawal: minimum 1,500 coins (PKR 750)</li>
+              <li>• Subsequent withdrawals: minimum 500 coins (PKR 250)</li>
+              <li>• Rate: 100 coins = PKR 50</li>
+              <li>• Max 1 request per day</li>
+              <li>• First withdrawal: manual verify (24-48 hrs)</li>
+            </ul>
+          </div>
+        </div>
 
         {/* History */}
         <div className="bg-white rounded-2xl shadow border border-gray-100">
