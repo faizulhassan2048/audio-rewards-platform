@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { Lock } from 'lucide-react'
+import { Lock, Trophy } from 'lucide-react'
 import LevelProgress from '@/components/tasks/LevelProgress'
 import LevelAudioCard from '@/components/tasks/LevelAudioCard'
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
@@ -30,50 +30,89 @@ interface StatusResponse {
 
 const REWARD_COINS = 45
 
+// ── Level config ───────────────────────────────────────────────
+const LEVELS = [
+  {
+    key: 'bronze',
+    name: 'Bronze',
+    icon: '🥉',
+    color: 'text-amber-600',
+    bg: 'bg-amber-50',
+    border: 'border-amber-200',
+    total: 15,
+  },
+  {
+    key: 'silver',
+    name: 'Silver',
+    icon: '🥈',
+    color: 'text-gray-500',
+    bg: 'bg-gray-50',
+    border: 'border-gray-200',
+    total: 15,
+    locked: true,
+    lockReason: 'Complete your first withdrawal to unlock',
+  },
+  {
+    key: 'gold',
+    name: 'Gold',
+    icon: '🥇',
+    color: 'text-yellow-500',
+    bg: 'bg-yellow-50',
+    border: 'border-yellow-200',
+    total: 15,
+    locked: true,
+    lockReason: 'Complete your first withdrawal to unlock',
+  },
+]
+
 export default function TasksPage() {
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [showAd, setShowAd] = useState(false)
   const [showComplete, setShowComplete] = useState(false)
   const [countdown, setCountdown] = useState('')
+  const [firstWithdrawalDone, setFirstWithdrawalDone] = useState(false)
   const pendingClaimRef = useRef(false)
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks/level/status')
-      const data = await res.json()
-      console.log('Status response:', data)
-      setStatus(data)
+      const [statusRes, withdrawalRes] = await Promise.all([
+        fetch('/api/tasks/level/status'),
+        fetch('/api/withdrawal/history'),
+      ])
+      const statusData = await statusRes.json()
+      const withdrawalData = await withdrawalRes.json()
 
-      if (data.level_complete && !data.reward_claimed && !pendingClaimRef.current) {
+      setStatus(statusData)
+
+      // First withdrawal check
+      const paid = (withdrawalData.withdrawals || []).some(
+        (w: any) => w.status === 'paid'
+      )
+      setFirstWithdrawalDone(paid)
+
+      if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
         pendingClaimRef.current = true
         await claimReward()
       }
-    } catch (error) {
-      console.error('Error fetching status:', error)
+    } catch {
       toast.error('Could not load task progress')
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    fetchStatus()
-  }, [fetchStatus])
+  useEffect(() => { fetchStatus() }, [fetchStatus])
 
-  // Countdown while locked
+  // Countdown timer
   useEffect(() => {
     if (!status?.locked || !status.locked_until) return
     const tick = () => {
       const diff = new Date(status.locked_until!).getTime() - Date.now()
-      if (diff <= 0) {
-        setCountdown('')
-        fetchStatus()
-        return
-      }
-      const hours = Math.floor(diff / (1000 * 60 * 60))
-      const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-      setCountdown(`${hours}h ${mins}m`)
+      if (diff <= 0) { setCountdown(''); fetchStatus(); return }
+      const h = Math.floor(diff / 3600000)
+      const m = Math.floor((diff % 3600000) / 60000)
+      setCountdown(`${h}h ${m}m`)
     }
     tick()
     const interval = setInterval(tick, 60000)
@@ -84,9 +123,7 @@ export default function TasksPage() {
     try {
       const res = await fetch('/api/tasks/level/claim', { method: 'POST' })
       const data = await res.json()
-      if (data.success) {
-        setShowComplete(true)
-      }
+      if (data.success) setShowComplete(true)
     } catch {
       toast.error('Could not claim reward')
     } finally {
@@ -102,16 +139,13 @@ export default function TasksPage() {
         body: JSON.stringify({ audio_id: audioId }),
       })
       const data = await res.json()
-      if (!data.success) {
-        toast.error(data.error || 'Could not save progress')
-        return
-      }
+      if (!data.success) { toast.error(data.error || 'Could not save progress'); return }
 
-      const finishedCount = data.completed_audios
+      const finished = data.completed_audios
       toast.success(
         data.level_complete
-          ? `✅ Audio ${finishedCount} completed!`
-          : `✅ Audio ${finishedCount} completed! Audio ${finishedCount + 1} ready.`
+          ? `🎉 All ${finished} audios complete! Reward coming...`
+          : `✅ Audio ${finished}/15 done!`
       )
 
       if (data.show_ad) {
@@ -119,9 +153,9 @@ export default function TasksPage() {
       } else if (data.level_complete) {
         await fetchStatus()
       } else {
-        setStatus((prev) => prev ? {
+        setStatus(prev => prev ? {
           ...prev,
-          completed_audios: finishedCount,
+          completed_audios: finished,
           current_audio: data.next_audio,
         } : prev)
       }
@@ -135,34 +169,35 @@ export default function TasksPage() {
     await fetchStatus()
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#6C63FF]" />
-      </div>
-    )
-  }
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#6C63FF]" />
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-24">
       <div className="max-w-md mx-auto space-y-3">
 
-        {/* ✅ TOP BANNER AD */}
+        {/* ✅ TOP BANNER */}
         <AdBanner position="top" />
 
+        {/* ── BRONZE LEVEL (active) ──────────────────────────── */}
         <LevelProgress
           levelName="Bronze"
           completed={status?.completed_audios || 0}
-          total={status?.total_audios || 9}
+          total={status?.total_audios || 15}
         />
 
         {status?.locked && (
-          <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 text-center">
-            <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-[#6C63FF]/10 flex items-center justify-center">
-              <Lock className="w-6 h-6 text-[#6C63FF]" />
+          <div className="bg-white rounded-2xl shadow border border-amber-100 p-6 text-center">
+            <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-50 flex items-center justify-center text-2xl">
+              🥉
             </div>
-            <p className="font-semibold text-gray-800 mb-1">🔄 Bronze Level completed!</p>
-            <p className="text-sm text-gray-500">Come back in {countdown || '...'}</p>
+            <p className="font-semibold text-gray-800 mb-1">🔄 Bronze Level complete!</p>
+            <p className="text-sm text-gray-500">
+              Next round in <span className="font-bold text-[#6C63FF]">{countdown || '...'}</span>
+            </p>
           </div>
         )}
 
@@ -177,11 +212,33 @@ export default function TasksPage() {
 
         {!status?.locked && !status?.current_audio && !status?.level_complete && (
           <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 text-center text-sm text-gray-500">
-            No audios available for this level right now. Please check back later.
+            No audios available right now. Admin will add soon.
           </div>
         )}
 
-        {/* ✅ BOTTOM BANNER AD */}
+        {/* ── SILVER LEVEL (locked) ─────────────────────────── */}
+        <LockedLevel
+          icon="🥈"
+          name="Silver Level"
+          unlocked={firstWithdrawalDone}
+          lockReason="Complete your first withdrawal to unlock Silver"
+          color="text-gray-500"
+          bg="bg-gray-50"
+          border="border-gray-200"
+        />
+
+        {/* ── GOLD LEVEL (locked) ───────────────────────────── */}
+        <LockedLevel
+          icon="🥇"
+          name="Gold Level"
+          unlocked={firstWithdrawalDone}
+          lockReason="Complete your first withdrawal to unlock Gold"
+          color="text-yellow-500"
+          bg="bg-yellow-50"
+          border="border-yellow-200"
+        />
+
+        {/* ✅ BOTTOM BANNER */}
         <AdBanner position="bottom" />
 
       </div>
@@ -196,6 +253,63 @@ export default function TasksPage() {
           onClose={() => { setShowComplete(false); fetchStatus() }}
         />
       )}
+    </div>
+  )
+}
+
+// ── Locked Level Card ──────────────────────────────────────────
+function LockedLevel({
+  icon, name, unlocked, lockReason, color, bg, border
+}: {
+  icon: string
+  name: string
+  unlocked: boolean
+  lockReason: string
+  color: string
+  bg: string
+  border: string
+}) {
+  if (unlocked) {
+    // Coming soon — future sprint
+    return (
+      <div className={`bg-white rounded-2xl shadow border ${border} p-5`}>
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">{icon}</span>
+          <div>
+            <h3 className="font-bold text-gray-800">{name}</h3>
+            <p className="text-xs text-green-600 font-semibold">🔓 Unlocked — Coming Soon</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`${bg} rounded-2xl border ${border} p-5 relative overflow-hidden`}>
+      {/* Blur overlay */}
+      <div className="absolute inset-0 backdrop-blur-[1px] bg-white/40 rounded-2xl z-10" />
+
+      {/* Content (blurred behind) */}
+      <div className="opacity-30">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">{icon}</span>
+            <h3 className="font-bold text-gray-800">{name}</h3>
+          </div>
+          <span className="text-xs text-gray-400 bg-white px-2 py-0.5 rounded-full">0/15 Audios</span>
+        </div>
+        <div className="w-full h-2.5 bg-gray-200 rounded-full" />
+      </div>
+
+      {/* Lock badge */}
+      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2">
+        <div className="w-12 h-12 rounded-full bg-white shadow-lg flex items-center justify-center">
+          <Lock className="w-5 h-5 text-gray-500" />
+        </div>
+        <p className="text-xs font-semibold text-gray-600 text-center px-6">
+          {lockReason}
+        </p>
+      </div>
     </div>
   )
 }
