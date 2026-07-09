@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { Lock, Trophy } from 'lucide-react'
+import { Lock } from 'lucide-react'
 import LevelProgress from '@/components/tasks/LevelProgress'
 import LevelAudioCard from '@/components/tasks/LevelAudioCard'
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
 import AdModal from '@/components/audio/AdModal'
 import AdBanner from '@/components/ads/AdBanner'
+import { createClient } from '@/lib/supabase/client'
 
 interface CurrentAudio {
   id: string
@@ -30,41 +31,6 @@ interface StatusResponse {
 
 const REWARD_COINS = 45
 
-// ── Level config ───────────────────────────────────────────────
-const LEVELS = [
-  {
-    key: 'bronze',
-    name: 'Bronze',
-    icon: '🥉',
-    color: 'text-amber-600',
-    bg: 'bg-amber-50',
-    border: 'border-amber-200',
-    total: 15,
-  },
-  {
-    key: 'silver',
-    name: 'Silver',
-    icon: '🥈',
-    color: 'text-gray-500',
-    bg: 'bg-gray-50',
-    border: 'border-gray-200',
-    total: 15,
-    locked: true,
-    lockReason: 'Complete your first withdrawal to unlock',
-  },
-  {
-    key: 'gold',
-    name: 'Gold',
-    icon: '🥇',
-    color: 'text-yellow-500',
-    bg: 'bg-yellow-50',
-    border: 'border-yellow-200',
-    total: 15,
-    locked: true,
-    lockReason: 'Complete your first withdrawal to unlock',
-  },
-]
-
 export default function TasksPage() {
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<StatusResponse | null>(null)
@@ -76,16 +42,27 @@ export default function TasksPage() {
 
   const fetchStatus = useCallback(async () => {
     try {
+      // ✅ FIX: user_id properly fetch karo
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (!user) {
+        toast.error('Please login to continue')
+        setLoading(false)
+        return
+      }
+
       const [statusRes, withdrawalRes] = await Promise.all([
         fetch('/api/tasks/level/status'),
-        fetch('/api/withdrawal/history'),
+        fetch(`/api/withdrawal?user_id=${user.id}`), // ✅ FIX: correct API path + user_id
       ])
+
       const statusData = await statusRes.json()
       const withdrawalData = await withdrawalRes.json()
 
       setStatus(statusData)
 
-      // First withdrawal check
+      // First paid withdrawal check
       const paid = (withdrawalData.withdrawals || []).some(
         (w: any) => w.status === 'paid'
       )
@@ -95,7 +72,8 @@ export default function TasksPage() {
         pendingClaimRef.current = true
         await claimReward()
       }
-    } catch {
+    } catch (err) {
+      console.error('fetchStatus error:', err)
       toast.error('Could not load task progress')
     } finally {
       setLoading(false)
@@ -179,10 +157,10 @@ export default function TasksPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-24">
       <div className="max-w-md mx-auto space-y-3">
 
-        {/* ✅ TOP BANNER */}
+        {/* TOP BANNER */}
         <AdBanner position="top" />
 
-        {/* ── BRONZE LEVEL (active) ──────────────────────────── */}
+        {/* BRONZE LEVEL */}
         <LevelProgress
           levelName="Bronze"
           completed={status?.completed_audios || 0}
@@ -216,29 +194,27 @@ export default function TasksPage() {
           </div>
         )}
 
-        {/* ── SILVER LEVEL (locked) ─────────────────────────── */}
+        {/* SILVER LEVEL */}
         <LockedLevel
           icon="🥈"
           name="Silver Level"
           unlocked={firstWithdrawalDone}
           lockReason="Complete your first withdrawal to unlock Silver"
-          color="text-gray-500"
           bg="bg-gray-50"
           border="border-gray-200"
         />
 
-        {/* ── GOLD LEVEL (locked) ───────────────────────────── */}
+        {/* GOLD LEVEL */}
         <LockedLevel
           icon="🥇"
           name="Gold Level"
           unlocked={firstWithdrawalDone}
           lockReason="Complete your first withdrawal to unlock Gold"
-          color="text-yellow-500"
           bg="bg-yellow-50"
           border="border-yellow-200"
         />
 
-        {/* ✅ BOTTOM BANNER */}
+        {/* BOTTOM BANNER */}
         <AdBanner position="bottom" />
 
       </div>
@@ -257,20 +233,18 @@ export default function TasksPage() {
   )
 }
 
-// ── Locked Level Card ──────────────────────────────────────────
+// Locked Level Card
 function LockedLevel({
-  icon, name, unlocked, lockReason, color, bg, border
+  icon, name, unlocked, lockReason, bg, border
 }: {
   icon: string
   name: string
   unlocked: boolean
   lockReason: string
-  color: string
   bg: string
   border: string
 }) {
   if (unlocked) {
-    // Coming soon — future sprint
     return (
       <div className={`bg-white rounded-2xl shadow border ${border} p-5`}>
         <div className="flex items-center gap-3">
@@ -286,10 +260,7 @@ function LockedLevel({
 
   return (
     <div className={`${bg} rounded-2xl border ${border} p-5 relative overflow-hidden`}>
-      {/* Blur overlay */}
       <div className="absolute inset-0 backdrop-blur-[1px] bg-white/40 rounded-2xl z-10" />
-
-      {/* Content (blurred behind) */}
       <div className="opacity-30">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -300,8 +271,6 @@ function LockedLevel({
         </div>
         <div className="w-full h-2.5 bg-gray-200 rounded-full" />
       </div>
-
-      {/* Lock badge */}
       <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2">
         <div className="w-12 h-12 rounded-full bg-white shadow-lg flex items-center justify-center">
           <Lock className="w-5 h-5 text-gray-500" />
