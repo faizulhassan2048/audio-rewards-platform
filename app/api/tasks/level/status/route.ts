@@ -81,26 +81,67 @@ export async function GET() {
   }
 
   // Get current audio
-  const currentAudioId = level.audio_ids[level.completed_audios]
-  if (!currentAudioId) {
+  let currentAudioId = level.audio_ids?.[level.completed_audios]
+
+  // ✅ FIX: agar koi id na ho, ya ye ab audios table mein exist na kare
+  // (e.g. admin ne delete kar di) — to purani stale pool ko refresh kar dein
+  // instead of crashing with a 500.
+  let audio = null
+  if (currentAudioId) {
+    const { data: audioRow } = await supabase
+      .from('audios')
+      .select('id, title, audio_url, thumbnail_url, duration_seconds')
+      .eq('id', currentAudioId)
+      .maybeSingle()
+    audio = audioRow
+  }
+
+  if (!currentAudioId || !audio) {
+    // Stale/missing audio pool — rebuild it from currently active audios
+    const freshAudioIds = await pickAudioPool(supabase)
+
+    const { data: refreshed, error } = await supabase
+      .from('user_levels')
+      .update({
+        audio_ids: freshAudioIds,
+        total_audios: freshAudioIds.length || TOTAL_AUDIOS,
+        completed_audio_ids: [],
+        completed_audios: 0,
+      })
+      .eq('id', level.id)
+      .select('*')
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    level = refreshed
+
+    const newCurrentId = level.audio_ids?.[0]
+    if (!newCurrentId) {
+      // Genuinely no active audios in the pool right now
+      return NextResponse.json({
+        locked: false,
+        level_complete: false,
+        level_name: level.level_name,
+        completed_audios: level.completed_audios,
+        total_audios: level.total_audios,
+        current_audio: null,
+      })
+    }
+
+    const { data: newAudio } = await supabase
+      .from('audios')
+      .select('id, title, audio_url, thumbnail_url, duration_seconds')
+      .eq('id', newCurrentId)
+      .maybeSingle()
+
     return NextResponse.json({
       locked: false,
       level_complete: false,
       level_name: level.level_name,
       completed_audios: level.completed_audios,
       total_audios: level.total_audios,
-      current_audio: null,
+      current_audio: newAudio || null,
     })
-  }
-
-  const { data: audio, error: audioErr } = await supabase
-    .from('audios')
-    .select('id, title, audio_url, thumbnail_url, duration_seconds')
-    .eq('id', currentAudioId)
-    .single()
-
-  if (audioErr || !audio) {
-    return NextResponse.json({ error: 'Audio not found' }, { status: 500 })
   }
 
   return NextResponse.json({
