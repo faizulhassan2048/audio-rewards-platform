@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { Lock } from 'lucide-react'
+import { Lock, ChevronDown, ChevronUp } from 'lucide-react'
 import LevelProgress from '@/components/tasks/LevelProgress'
 import LevelAudioCard from '@/components/tasks/LevelAudioCard'
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
@@ -38,6 +38,7 @@ export default function TasksPage() {
   const [showComplete, setShowComplete] = useState(false)
   const [countdown, setCountdown] = useState('')
   const [firstWithdrawalDone, setFirstWithdrawalDone] = useState(false)
+  const [bronzeExpanded, setBronzeExpanded] = useState(true) // ✅ expand/collapse state for Bronze card
   const pendingClaimRef = useRef(false)
 
   const fetchStatus = useCallback(async () => {
@@ -160,39 +161,60 @@ export default function TasksPage() {
         {/* TOP BANNER */}
         <AdBanner position="top" />
 
-        {/* BRONZE LEVEL */}
-        <LevelProgress
-          levelName="Bronze"
-          completed={status?.completed_audios || 0}
-          total={status?.total_audios || 15}
-        />
-
-        {status?.locked && (
-          <div className="bg-white rounded-2xl shadow border border-amber-100 p-6 text-center">
-            <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-50 flex items-center justify-center text-2xl">
-              🥉
+        {/* BRONZE LEVEL — clickable card, expands to reveal audio content inside */}
+        <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setBronzeExpanded(prev => !prev)}
+            className="w-full text-left"
+          >
+            <div className="flex items-center justify-between px-1 pt-1">
+              <div className="flex-1">
+                <LevelProgress
+                  levelName="Bronze"
+                  completed={status?.completed_audios || 0}
+                  total={status?.total_audios || 15}
+                />
+              </div>
+              {bronzeExpanded ? (
+                <ChevronUp className="w-5 h-5 text-gray-400 mr-3 shrink-0" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-gray-400 mr-3 shrink-0" />
+              )}
             </div>
-            <p className="font-semibold text-gray-800 mb-1">🔄 Bronze Level complete!</p>
-            <p className="text-sm text-gray-500">
-              Next round in <span className="font-bold text-[#6C63FF]">{countdown || '...'}</span>
-            </p>
-          </div>
-        )}
+          </button>
 
-        {!status?.locked && status?.current_audio && (
-          <LevelAudioCard
-            audio={status.current_audio}
-            index={status.completed_audios}
-            total={status.total_audios}
-            onFinished={handleAudioFinished}
-          />
-        )}
+          {bronzeExpanded && (
+            <div className="px-3 pb-3">
+              {status?.locked && (
+                <div className="bg-white rounded-2xl border border-amber-100 p-6 text-center">
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-50 flex items-center justify-center text-2xl">
+                    🥉
+                  </div>
+                  <p className="font-semibold text-gray-800 mb-1">🔄 Bronze Level complete!</p>
+                  <p className="text-sm text-gray-500">
+                    Next round in <span className="font-bold text-[#6C63FF]">{countdown || '...'}</span>
+                  </p>
+                </div>
+              )}
 
-        {!status?.locked && !status?.current_audio && !status?.level_complete && (
-          <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 text-center text-sm text-gray-500">
-            No audios available right now. Admin will add soon.
-          </div>
-        )}
+              {!status?.locked && status?.current_audio && (
+                <LevelAudioCard
+                  audio={status.current_audio}
+                  index={status.completed_audios}
+                  total={status.total_audios}
+                  onFinished={handleAudioFinished}
+                />
+              )}
+
+              {!status?.locked && !status?.current_audio && !status?.level_complete && (
+                <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">
+                  New audios coming soon. Check back shortly! 🎧
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* SILVER LEVEL */}
         <LockedLevel
