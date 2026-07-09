@@ -55,7 +55,7 @@ export default function TasksPage() {
 
       const [statusRes, withdrawalRes] = await Promise.all([
         fetch('/api/tasks/level/status'),
-        fetch(`/api/withdrawal?user_id=${user.id}`), // ✅ FIX: correct API path + user_id
+        fetch(`/api/withdrawals?user_id=${user.id}`), // ✅ FIX: matches app/api/withdrawals/route.ts
       ])
 
       const statusData = await statusRes.json()
