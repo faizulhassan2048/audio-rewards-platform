@@ -23,27 +23,33 @@ interface StatusResponse {
   locked_until?: string
   level_complete?: boolean
   reward_claimed?: boolean
+  ad_required?: boolean
+  milestone?: number | null
   level_name: string
   completed_audios: number
   total_audios: number
   current_audio?: CurrentAudio | null
 }
 
-const REWARD_COINS = 45
+const REWARD_COINS = 45 // final wallet credit — keep this in sync with claim/route.ts
+const AD_MILESTONE_DISPLAY_COINS = REWARD_COINS // what the "Claim" button shows at every milestone
 
 export default function TasksPage() {
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [showAd, setShowAd] = useState(false)
+  const [adMilestone, setAdMilestone] = useState<number | null>(null)
+  const [adClaiming, setAdClaiming] = useState(false)
+  const [adError, setAdError] = useState<string | null>(null)
   const [showComplete, setShowComplete] = useState(false)
   const [countdown, setCountdown] = useState('')
   const [firstWithdrawalDone, setFirstWithdrawalDone] = useState(false)
-  const [bronzeExpanded, setBronzeExpanded] = useState(true) // ✅ expand/collapse state for Bronze card
+  const [bronzeExpanded, setBronzeExpanded] = useState(true)
   const pendingClaimRef = useRef(false)
+  const adSessionStartedRef = useRef(false)
 
   const fetchStatus = useCallback(async () => {
     try {
-      // ✅ FIX: user_id properly fetch karo
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
 
@@ -55,19 +61,29 @@ export default function TasksPage() {
 
       const [statusRes, withdrawalRes] = await Promise.all([
         fetch('/api/tasks/level/status'),
-        fetch(`/api/withdrawals?user_id=${user.id}`), // ✅ FIX: matches app/api/withdrawals/route.ts
+        fetch(`/api/withdrawals?user_id=${user.id}`),
       ])
 
-      const statusData = await statusRes.json()
+      const statusData: StatusResponse = await statusRes.json()
       const withdrawalData = await withdrawalRes.json()
 
       setStatus(statusData)
 
-      // First paid withdrawal check
       const paid = (withdrawalData.withdrawals || []).some(
         (w: any) => w.status === 'paid'
       )
       setFirstWithdrawalDone(paid)
+
+      // Server says an ad gate is open — this fires on first load AND on every
+      // refresh/tab-reopen, so the gate can never be skipped by reloading.
+      if (statusData.ad_required && statusData.milestone) {
+        setAdMilestone(statusData.milestone)
+        setShowAd(true)
+        setAdError(null)
+      } else {
+        setShowAd(false)
+        setAdMilestone(null)
+      }
 
       if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
         pendingClaimRef.current = true
@@ -75,10 +91,13 @@ export default function TasksPage() {
       }
     } catch (err) {
       console.error('fetchStatus error:', err)
-      toast.error('Could not load task progress')
+      toast.error('Could not load task progress', {
+        action: { label: 'Retry', onClick: () => fetchStatus() },
+      })
     } finally {
       setLoading(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => { fetchStatus() }, [fetchStatus])
@@ -98,13 +117,22 @@ export default function TasksPage() {
     return () => clearInterval(interval)
   }, [status?.locked, status?.locked_until, fetchStatus])
 
+  // Final wallet credit — unchanged mechanics, just surfaced with a retry toast.
   const claimReward = async () => {
     try {
       const res = await fetch('/api/tasks/level/claim', { method: 'POST' })
       const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error || 'Could not claim your reward', {
+          action: { label: 'Retry', onClick: () => claimReward() },
+        })
+        return
+      }
       if (data.success) setShowComplete(true)
     } catch {
-      toast.error('Could not claim reward')
+      toast.error('Network error while claiming reward', {
+        action: { label: 'Retry', onClick: () => claimReward() },
+      })
     } finally {
       pendingClaimRef.current = false
     }
@@ -118,16 +146,31 @@ export default function TasksPage() {
         body: JSON.stringify({ audio_id: audioId }),
       })
       const data = await res.json()
-      if (!data.success) { toast.error(data.error || 'Could not save progress'); return }
+
+      if (!res.ok) {
+        // e.g. AD_REQUIRED (409) if user somehow tried to advance with a gate
+        // still open, or 409 out-of-order — either way, re-sync from server
+        // instead of trusting local state.
+        if (data.error === 'AD_REQUIRED' && data.milestone) {
+          setAdMilestone(data.milestone)
+          setShowAd(true)
+          return
+        }
+        toast.error(data.error || 'Could not save progress', {
+          action: { label: 'Retry', onClick: () => handleAudioFinished(audioId) },
+        })
+        return
+      }
 
       const finished = data.completed_audios
       toast.success(
         data.level_complete
-          ? `🎉 All ${finished} audios complete! Reward coming...`
+          ? `🎉 All ${finished} audios complete!`
           : `✅ Audio ${finished}/15 done!`
       )
 
       if (data.show_ad) {
+        setAdMilestone(data.milestone)
         setShowAd(true)
       } else if (data.level_complete) {
         await fetchStatus()
@@ -139,13 +182,57 @@ export default function TasksPage() {
         } : prev)
       }
     } catch {
-      toast.error('Network error')
+      toast.error('Network error while saving progress', {
+        action: { label: 'Retry', onClick: () => handleAudioFinished(audioId) },
+      })
     }
   }
 
-  const handleAdFinished = async () => {
-    setShowAd(false)
-    await fetchStatus()
+  // Start the server-verified ad session as soon as the modal is actually shown.
+  useEffect(() => {
+    if (showAd && !adSessionStartedRef.current) {
+      adSessionStartedRef.current = true
+      fetch('/api/tasks/level/ads/start', { method: 'POST' }).catch(() => {
+        // non-fatal — /ads/verify will just fail with a clear error if this never ran
+      })
+    }
+    if (!showAd) {
+      adSessionStartedRef.current = false
+    }
+  }, [showAd])
+
+  // Called when the user taps "Claim X Coins" inside the ad modal.
+  // Milestone 5/10 → unlocks the gate only, wallet untouched.
+  // Milestone 15   → unlocks the gate AND triggers the real wallet credit.
+  const handleAdClaim = async () => {
+    setAdClaiming(true)
+    setAdError(null)
+    try {
+      const res = await fetch('/api/tasks/level/ads/verify', { method: 'POST' })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setAdError(data.error || 'Could not verify ad. Please try again.')
+        return
+      }
+
+      setShowAd(false)
+      setAdMilestone(null)
+
+      if (data.isFinalMilestone) {
+        // Level's 15/15 ad just got verified — now actually credit the wallet.
+        await claimReward()
+      } else {
+        toast.success(
+          `✅ 15 coins locked in! Finish all 15 audios to add them to your wallet.`
+        )
+      }
+      await fetchStatus()
+    } catch {
+      setAdError('Network error — your progress is safe, just tap Retry.')
+    } finally {
+      setAdClaiming(false)
+    }
   }
 
   if (loading) return (
@@ -155,13 +242,11 @@ export default function TasksPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-24">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto space-y-3">
 
-        {/* TOP BANNER */}
         <AdBanner position="top" />
 
-        {/* BRONZE LEVEL — clickable card, expands to reveal audio content inside */}
         <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
           <button
             type="button"
@@ -198,7 +283,7 @@ export default function TasksPage() {
                 </div>
               )}
 
-              {!status?.locked && status?.current_audio && (
+              {!status?.locked && !showAd && status?.current_audio && (
                 <LevelAudioCard
                   audio={status.current_audio}
                   index={status.completed_audios}
@@ -207,7 +292,7 @@ export default function TasksPage() {
                 />
               )}
 
-              {!status?.locked && !status?.current_audio && !status?.level_complete && (
+              {!status?.locked && !status?.current_audio && !status?.level_complete && !showAd && (
                 <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">
                   New audios coming soon. Check back shortly! 🎧
                 </div>
@@ -216,7 +301,6 @@ export default function TasksPage() {
           )}
         </div>
 
-        {/* SILVER LEVEL */}
         <LockedLevel
           icon="🥈"
           name="Silver Level"
@@ -226,7 +310,6 @@ export default function TasksPage() {
           border="border-gray-200"
         />
 
-        {/* GOLD LEVEL */}
         <LockedLevel
           icon="🥇"
           name="Gold Level"
@@ -236,13 +319,17 @@ export default function TasksPage() {
           border="border-yellow-200"
         />
 
-        {/* BOTTOM BANNER */}
         <AdBanner position="bottom" />
 
       </div>
 
       {showAd && (
-        <AdModal onFinished={handleAdFinished} rewardCoins={0} />
+        <AdModal
+          onFinished={handleAdClaim}
+          rewardCoins={AD_MILESTONE_DISPLAY_COINS}
+          claiming={adClaiming}
+          errorMessage={adError}
+        />
       )}
 
       {showComplete && (
@@ -255,7 +342,6 @@ export default function TasksPage() {
   )
 }
 
-// Locked Level Card
 function LockedLevel({
   icon, name, unlocked, lockReason, bg, border
 }: {

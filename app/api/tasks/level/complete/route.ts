@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 const LEVEL_NAME = 'bronze'
+const AD_MILESTONES = [5, 10, 15]
 
 export async function POST(req: Request) {
   const supabase = await createClient()
@@ -24,7 +25,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Level is locked' }, { status: 403 })
   }
 
-  // Server-side integrity check
+  // If a previous ad gate is still open, refuse to progress at all.
+  // This is what stops "refresh 1-2 times to skip the ad" — the gate lives in
+  // the DB, so a reload can't make the server forget it's owed an ad watch.
+  if (level.pending_ad_milestone) {
+    return NextResponse.json(
+      { error: 'AD_REQUIRED', milestone: level.pending_ad_milestone },
+      { status: 409 }
+    )
+  }
+
+  // Server-side integrity check (unchanged) — stops out-of-order/replayed audio_id
   const expectedAudioId = level.audio_ids[level.completed_audios]
   if (expectedAudioId !== audio_id) {
     return NextResponse.json({ error: 'Audio out of order or already completed' }, { status: 409 })
@@ -36,11 +47,17 @@ export async function POST(req: Request) {
   const newCompletedCount = level.completed_audios + 1
   const newCompletedIds = [...level.completed_audio_ids, audio_id]
   const isLevelComplete = newCompletedCount >= level.total_audios
-  const showAd = newCompletedCount % 5 === 0 // ads after audio 5, 10, 15
+  const hitMilestone = AD_MILESTONES.includes(newCompletedCount)
 
   const updatePayload: Record<string, any> = {
     completed_audios: newCompletedCount,
     completed_audio_ids: newCompletedIds,
+  }
+
+  if (hitMilestone) {
+    // Open the gate. Nothing further can be fetched/served until
+    // /api/tasks/level/ads/verify clears this — see status route.
+    updatePayload.pending_ad_milestone = newCompletedCount
   }
 
   if (isLevelComplete) {
@@ -55,8 +72,10 @@ export async function POST(req: Request) {
 
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
 
+  // While the ad gate is open we never hand back the next audio — even for
+  // the same request that just completed audio #5/10/15.
   let nextAudio = null
-  if (!isLevelComplete) {
+  if (!isLevelComplete && !hitMilestone) {
     const nextAudioId = level.audio_ids[newCompletedCount]
     const { data: audio } = await supabase
       .from('audios')
@@ -70,7 +89,8 @@ export async function POST(req: Request) {
     success: true,
     completed_audios: newCompletedCount,
     total_audios: level.total_audios,
-    show_ad: showAd,
+    show_ad: hitMilestone,
+    milestone: hitMilestone ? newCompletedCount : null,
     level_complete: isLevelComplete,
     next_audio: nextAudio,
   })

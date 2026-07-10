@@ -47,7 +47,7 @@ export async function GET() {
     })
   }
 
-  // Cooldown expired — reset
+  // Cooldown expired — reset (also clears any leftover ad-gate state)
   if (level.locked_until && new Date(level.locked_until) <= now) {
     const audioIds = await pickAudioPool(supabase)
     const { data: reset, error } = await supabase
@@ -60,12 +60,32 @@ export async function GET() {
         reward_claimed: false,
         completed_at: null,
         locked_until: null,
+        pending_ad_milestone: null,
+        ad_session_started_at: null,
+        ad_milestones_unlocked: [],
       })
       .eq('id', level.id)
       .select('*')
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     level = reset
+  }
+
+  // ── AD GATE ──────────────────────────────────────────────────────
+  // This is the actual fix for "refresh to skip the ad": as long as
+  // pending_ad_milestone is set in the DB, we never return a current_audio,
+  // no matter how many times the page is refreshed or the tab is reopened.
+  // The client is forced back into the ad flow.
+  if (level.pending_ad_milestone) {
+    return NextResponse.json({
+      locked: false,
+      level_complete: false,
+      ad_required: true,
+      milestone: level.pending_ad_milestone,
+      level_name: level.level_name,
+      completed_audios: level.completed_audios,
+      total_audios: level.total_audios,
+    })
   }
 
   // Level complete — waiting for claim
@@ -83,9 +103,6 @@ export async function GET() {
   // Get current audio
   let currentAudioId = level.audio_ids?.[level.completed_audios]
 
-  // ✅ FIX: agar koi id na ho, ya ye ab audios table mein exist na kare
-  // (e.g. admin ne delete kar di) — to purani stale pool ko refresh kar dein
-  // instead of crashing with a 500.
   let audio = null
   if (currentAudioId) {
     const { data: audioRow } = await supabase
@@ -117,7 +134,6 @@ export async function GET() {
 
     const newCurrentId = level.audio_ids?.[0]
     if (!newCurrentId) {
-      // Genuinely no active audios in the pool right now
       return NextResponse.json({
         locked: false,
         level_complete: false,

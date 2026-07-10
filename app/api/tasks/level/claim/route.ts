@@ -20,6 +20,11 @@ export async function POST() {
   if (level.completed_audios < level.total_audios) {
     return NextResponse.json({ error: 'Level not yet complete' }, { status: 400 })
   }
+  // NEW: the wallet can only ever be credited once the 15th-audio ad has
+  // actually been server-verified — not just because completed_audios hit 15.
+  if (!level.ad_milestones_unlocked?.includes(level.total_audios)) {
+    return NextResponse.json({ error: 'Final ad not completed yet' }, { status: 403 })
+  }
   if (level.reward_claimed) {
     return NextResponse.json({ success: true, already_claimed: true })
   }
@@ -35,6 +40,22 @@ export async function POST() {
   const balanceBefore = Number(wallet.coin_balance)
   const balanceAfter = balanceBefore + REWARD_COINS
 
+  // Claim first, conditionally on reward_claimed still being false, so a
+  // double-click / retry-after-timeout can never credit the wallet twice.
+  const { data: claimedRow, error: claimErr } = await supabase
+    .from('user_levels')
+    .update({ reward_claimed: true })
+    .eq('id', level.id)
+    .eq('reward_claimed', false)
+    .select('id')
+    .maybeSingle()
+
+  if (claimErr) return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  if (!claimedRow) {
+    // Someone else's request (or a fast retry) already claimed it.
+    return NextResponse.json({ success: true, already_claimed: true })
+  }
+
   const { error: walletUpdateErr } = await supabase
     .from('wallets')
     .update({
@@ -43,7 +64,11 @@ export async function POST() {
     })
     .eq('user_id', user.id)
 
-  if (walletUpdateErr) return NextResponse.json({ error: walletUpdateErr.message }, { status: 500 })
+  if (walletUpdateErr) {
+    // Roll back the claim flag so the user can retry instead of losing coins silently.
+    await supabase.from('user_levels').update({ reward_claimed: false }).eq('id', level.id)
+    return NextResponse.json({ error: walletUpdateErr.message }, { status: 500 })
+  }
 
   await supabase.from('transactions').insert({
     user_id: user.id,
@@ -56,7 +81,6 @@ export async function POST() {
     description: 'Bronze Level completed — 15/15 audios',
   })
 
-  // Leaderboard snapshot (non-fatal)
   try {
     await supabase.from('leaderboard_snapshots').upsert(
       {
@@ -74,7 +98,7 @@ export async function POST() {
 
   await supabase
     .from('user_levels')
-    .update({ reward_claimed: true, locked_until: lockedUntil })
+    .update({ locked_until: lockedUntil })
     .eq('id', level.id)
 
   return NextResponse.json({ success: true, coins_awarded: REWARD_COINS, new_balance: balanceAfter })

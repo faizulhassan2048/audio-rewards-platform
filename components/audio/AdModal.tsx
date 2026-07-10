@@ -1,14 +1,23 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 
 interface AdModalProps {
-  onFinished: () => void;
+  onFinished: () => void; // now expected to be async — parent awaits verify/claim
   rewardCoins: number;
   adDurationSeconds?: number;
+  claiming?: boolean;
+  errorMessage?: string | null;
 }
 
-export default function AdModal({ onFinished, rewardCoins, adDurationSeconds = 15 }: AdModalProps) {
+export default function AdModal({
+  onFinished,
+  rewardCoins,
+  adDurationSeconds = 15,
+  claiming = false,
+  errorMessage = null,
+}: AdModalProps) {
   const [secondsLeft, setSecondsLeft] = useState(adDurationSeconds);
   const [adLoaded, setAdLoaded] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -39,11 +48,10 @@ export default function AdModal({ onFinished, rewardCoins, adDurationSeconds = 1
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 sm:p-4">
       <div className="w-full h-full sm:h-auto sm:max-w-sm bg-white sm:rounded-2xl flex flex-col overflow-hidden">
-        
+
         {/* ── ADSTERRA FULL SCREEN AD PLACEHOLDER ── */}
         <div className="flex-1 sm:flex-none sm:aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-6 text-center relative">
-          
-          {/* Adsterra Ad Container */}
+
           <div id="adsterra-fullscreen" className="w-full h-full flex items-center justify-center">
             {!adLoaded ? (
               <div className="text-center">
@@ -55,16 +63,13 @@ export default function AdModal({ onFinished, rewardCoins, adDurationSeconds = 1
                 <p className="text-4xl mb-3">📺</p>
                 <p className="text-sm font-medium">Adsterra Full Screen Ad</p>
                 <p className="text-xs opacity-70 mt-1">Replace with your Adsterra code</p>
-                
-                {/* ⚠️ REPLACE THIS WITH YOUR ADSTERRA FULL SCREEN CODE */}
                 <div className="mt-3 p-2 bg-white/10 rounded-lg text-xs">
                   <code className="opacity-60">Adsterra Interstitial Code Here</code>
                 </div>
               </div>
             )}
           </div>
-          
-          {/* Ad Timer Badge */}
+
           <div className="absolute top-3 right-3 bg-black/50 text-white text-xs px-3 py-1 rounded-full">
             {canContinue ? '✅ Done' : `${secondsLeft}s`}
           </div>
@@ -72,17 +77,30 @@ export default function AdModal({ onFinished, rewardCoins, adDurationSeconds = 1
         {/* ── END ADSTERRA ── */}
 
         <div className="p-4 sm:p-5 border-t border-gray-100">
-          <p className="text-sm text-gray-600 mb-3 text-center">
-            {canContinue
-              ? `🎉 Watch complete — claim your 🪙 ${rewardCoins} coins!`
-              : `⏳ Reward available in ${secondsLeft}s…`}
-          </p>
+          {errorMessage ? (
+            <p className="text-sm text-red-600 mb-3 text-center font-medium">
+              ⚠️ {errorMessage}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-600 mb-3 text-center">
+              {canContinue
+                ? `🎉 Watch complete — claim your 🪙 ${rewardCoins} coins!`
+                : `⏳ Reward available in ${secondsLeft}s…`}
+            </p>
+          )}
           <button
             onClick={onFinished}
-            disabled={!canContinue}
-            className="w-full py-3 rounded-xl bg-purple-600 text-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-purple-700 transition-colors"
+            disabled={!canContinue || claiming}
+            className="w-full py-3 rounded-xl bg-purple-600 text-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
           >
-            {canContinue ? `Claim ${rewardCoins} Coins` : `Please wait (${secondsLeft}s)`}
+            {claiming && <Loader2 size={18} className="animate-spin" />}
+            {claiming
+              ? 'Verifying…'
+              : errorMessage
+              ? 'Retry Claim'
+              : canContinue
+              ? `Claim ${rewardCoins} Coins`
+              : `Please wait (${secondsLeft}s)`}
           </button>
         </div>
       </div>
