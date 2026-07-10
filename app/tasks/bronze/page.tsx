@@ -48,7 +48,7 @@ export default function BronzeLevelPage() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks/level/status')
+      const res = await fetch('/api/tasks/level/status', { cache: 'no-store' })
       if (res.status === 401) {
         toast.error('Please login to continue')
         setLoading(false)
@@ -99,7 +99,7 @@ export default function BronzeLevelPage() {
 
   const claimReward = async () => {
     try {
-      const res = await fetch('/api/tasks/level/claim', { method: 'POST' })
+      const res = await fetch('/api/tasks/level/claim', { method: 'POST', cache: 'no-store' })
       const data = await res.json()
       if (!res.ok) {
         toast.error(data.error || 'Could not claim your reward', {
@@ -125,6 +125,7 @@ export default function BronzeLevelPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ audio_id: audioId, session_token: sessionToken }),
+        cache: 'no-store',
       })
       const data = await res.json()
 
@@ -132,6 +133,19 @@ export default function BronzeLevelPage() {
         if (data.error === 'AD_REQUIRED' && data.milestone) {
           setAdMilestone(data.milestone)
           setShowAd(true)
+          return
+        }
+        // "Audio out of order or already completed" / "Audio already completed"
+        // means the client's local view of progress has drifted from the
+        // server (e.g. a duplicate request after a refresh). Retrying with
+        // the SAME audioId would just fail again — instead, resync from the
+        // server so the correct current audio is shown.
+        if (
+          data.error === 'Audio out of order or already completed' ||
+          data.error === 'Audio already completed'
+        ) {
+          toast.error('Progress had drifted — reloading your current audio…')
+          await fetchStatus()
           return
         }
         toast.error(data.error || 'Could not save progress', {
@@ -152,12 +166,20 @@ export default function BronzeLevelPage() {
         setShowAd(true)
       } else if (data.level_complete) {
         await fetchStatus()
-      } else {
+      } else if (data.next_audio) {
         setStatus(prev => prev ? {
           ...prev,
           completed_audios: finished,
           current_audio: data.next_audio,
         } : prev)
+      } else {
+        // Shouldn't normally happen, but if the server didn't hand back a
+        // next audio for some reason, don't leave the UI stuck silently —
+        // tell the user why and resync.
+        toast.error('Could not load the next audio. Refreshing your progress…', {
+          action: { label: 'Retry', onClick: () => fetchStatus() },
+        })
+        await fetchStatus()
       }
     } catch {
       toast.error('Network error while saving progress', {
@@ -260,6 +282,7 @@ export default function BronzeLevelPage() {
         <AdModal
           onFinished={handleAdClaim}
           rewardCoins={AD_MILESTONE_DISPLAY_COINS}
+          adDurationSeconds={30}
           claiming={adClaiming}
           errorMessage={adError}
         />
