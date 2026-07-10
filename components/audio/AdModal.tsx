@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 interface AdModalProps {
-  onFinished: () => void; // now expected to be async — parent awaits verify/claim
+  onFinished: () => void;
   rewardCoins: number;
-  adDurationSeconds?: number;
+  adDurationSeconds?: number; // default below matches server MIN_AD_SECONDS in ads/verify route
   claiming?: boolean;
   errorMessage?: string | null;
 }
@@ -14,16 +14,22 @@ interface AdModalProps {
 export default function AdModal({
   onFinished,
   rewardCoins,
-  adDurationSeconds = 15,
+  adDurationSeconds = 45, // 45s — keep this in sync with MIN_AD_SECONDS in ads/verify/route.ts
   claiming = false,
   errorMessage = null,
 }: AdModalProps) {
   const [secondsLeft, setSecondsLeft] = useState(adDurationSeconds);
   const [adLoaded, setAdLoaded] = useState(false);
+  const [tabWarning, setTabWarning] = useState(false);
+  const [backWarning, setBackWarning] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
 
+  // ── Countdown — pauses whenever the tab is hidden, so switching tabs
+  // can never let the timer run out "for free" in the background.
   useEffect(() => {
     timerRef.current = setInterval(() => {
+      if (document.visibilityState !== 'visible') return; // frozen while hidden
       setSecondsLeft((s) => {
         if (s <= 1) {
           if (timerRef.current) clearInterval(timerRef.current);
@@ -37,7 +43,32 @@ export default function AdModal({
     };
   }, []);
 
-  // Simulate ad load
+  useEffect(() => {
+    const handleVisibility = () => {
+      setTabWarning(document.visibilityState !== 'visible');
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
+  // ── Back-button trap — while the ad modal is open, pressing back (or a
+  // back-swipe gesture) must not be able to leave/skip it. We push an extra
+  // history entry and immediately re-push it if the user tries to pop it.
+  useEffect(() => {
+    window.history.pushState({ adGuard: true }, '');
+    const handlePopState = () => {
+      window.history.pushState({ adGuard: true }, '');
+      setBackWarning(true);
+      if (backWarningTimeout.current) clearTimeout(backWarningTimeout.current);
+      backWarningTimeout.current = setTimeout(() => setBackWarning(false), 2500);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (backWarningTimeout.current) clearTimeout(backWarningTimeout.current);
+    };
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => setAdLoaded(true), 2000);
     return () => clearTimeout(timer);
@@ -49,7 +80,6 @@ export default function AdModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 sm:p-4">
       <div className="w-full h-full sm:h-auto sm:max-w-sm bg-white sm:rounded-2xl flex flex-col overflow-hidden">
 
-        {/* ── ADSTERRA FULL SCREEN AD PLACEHOLDER ── */}
         <div className="flex-1 sm:flex-none sm:aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-6 text-center relative">
 
           <div id="adsterra-fullscreen" className="w-full h-full flex items-center justify-center">
@@ -71,21 +101,31 @@ export default function AdModal({
           </div>
 
           <div className="absolute top-3 right-3 bg-black/50 text-white text-xs px-3 py-1 rounded-full">
-            {canContinue ? '✅ Done' : `${secondsLeft}s`}
+            {canContinue ? 'Done' : `${secondsLeft}s`}
           </div>
+
+          {tabWarning && (
+            <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-6 text-center">
+              <p className="text-sm font-semibold">Come back to this tab — the ad timer is paused until you do.</p>
+            </div>
+          )}
         </div>
-        {/* ── END ADSTERRA ── */}
 
         <div className="p-4 sm:p-5 border-t border-gray-100">
+          {backWarning && (
+            <p className="text-xs text-red-600 mb-2 text-center font-semibold">
+              You must finish watching this ad to continue.
+            </p>
+          )}
           {errorMessage ? (
             <p className="text-sm text-red-600 mb-3 text-center font-medium">
-              ⚠️ {errorMessage}
+              {errorMessage}
             </p>
           ) : (
             <p className="text-sm text-gray-600 mb-3 text-center">
               {canContinue
-                ? `🎉 Watch complete — claim your 🪙 ${rewardCoins} coins!`
-                : `⏳ Reward available in ${secondsLeft}s…`}
+                ? `Watch complete — claim your ${rewardCoins} coins!`
+                : `Reward available in ${secondsLeft}s…`}
             </p>
           )}
           <button

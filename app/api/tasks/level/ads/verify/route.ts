@@ -2,12 +2,15 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 const LEVEL_NAME = 'bronze'
-const MIN_AD_SECONDS = 14 // AdModal's default watch time is 15s — allow 1s slack for request latency
+// Keep this a few seconds below AdModal's adDurationSeconds (45s) to allow
+// for request latency — but high enough that skipping the wait is pointless.
+const MIN_AD_SECONDS = 42
 
 // POST — called when the user taps "Claim X Coins" inside AdModal, once the
 // on-screen timer hits 0. This is the only place that clears pending_ad_milestone,
-// and it refuses to clear it if not enough real time has passed since /ads/start —
-// so someone calling this directly from devtools without waiting can't skip the ad.
+// and it refuses to clear it if not enough real wall-clock time has passed since
+// /ads/start — so someone calling this directly from devtools without waiting,
+// or trying to fast-forward via tab tricks, can't skip the ad.
 export async function POST() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -24,11 +27,8 @@ export async function POST() {
 
   const milestone = level.pending_ad_milestone
   if (!milestone) {
-    // Nothing pending — either already verified (e.g. a retried request) or
-    // never opened. Treat as idempotent success if the milestone is already unlocked.
     return NextResponse.json({ success: true, alreadyUnlocked: true })
   }
-
   if (!level.ad_session_started_at) {
     return NextResponse.json({ error: 'Ad was not started. Please reopen the ad.' }, { status: 400 })
   }
@@ -39,7 +39,6 @@ export async function POST() {
   }
 
   const unlocked = Array.from(new Set([...(level.ad_milestones_unlocked || []), milestone]))
-
   const { error: updateErr } = await supabase
     .from('user_levels')
     .update({

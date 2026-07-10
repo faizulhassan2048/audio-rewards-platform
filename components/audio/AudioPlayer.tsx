@@ -13,8 +13,6 @@ interface AudioPlayerProps {
   onComplete?: () => void;
 }
 
-// Fired once immediately on mount to warm up the session + start
-// buffering the audio, so the very first "Play" press is instant.
 export default function AudioPlayer({
   audioId,
   audioUrl,
@@ -31,12 +29,10 @@ export default function AudioPlayer({
   const [isCompleted, setIsCompleted] = useState(false);
   const [isSessionActive, setIsSessionActive] = useState(false);
 
-  // Audio loading states
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [audioReady, setAudioReady] = useState(false);
 
-  // Reward + rotation/cooldown state
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const [statusChecked, setStatusChecked] = useState(false);
   const [cooldownInfo, setCooldownInfo] = useState<{
@@ -44,11 +40,9 @@ export default function AudioPlayer({
     days?: number;
   }>({});
 
-  // Ad state — shown after 100% completion, before reward is granted
   const [showAd, setShowAd] = useState(false);
   const [claimingReward, setClaimingReward] = useState(false);
 
-  // Warning states
   const [tabWarning, setTabWarning] = useState(false);
   const [volumeWarning, setVolumeWarning] = useState(false);
   const [pausedBySystem, setPausedBySystem] = useState(false);
@@ -64,9 +58,6 @@ export default function AudioPlayer({
   const isCompletedRef = useRef(false);
   const sessionStartedRef = useRef(false);
 
-  // ── FEATURE 0: Check claim/cooldown status on mount ────────────
-  // This is what makes "Completed" show instantly on page load,
-  // instead of the user having to replay the whole track to find out.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -86,7 +77,7 @@ export default function AudioPlayer({
           }
         }
       } catch {
-        // Non-fatal — worst case user finds out at claim time
+        // Non-fatal
       } finally {
         if (!cancelled) setStatusChecked(true);
       }
@@ -95,11 +86,6 @@ export default function AudioPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioId]);
 
-  // ── FEATURE 0b: Warm up session + start buffering on mount ─────
-  // This is the fix for "audio reloads / takes long on Play".
-  // We no longer wait for the user to press Play before asking the
-  // server for a signed URL — we do it as soon as the player mounts,
-  // in parallel with the rest of the page loading.
   const warmUpSession = useCallback(async () => {
     if (sessionStartedRef.current) return;
     sessionStartedRef.current = true;
@@ -114,8 +100,6 @@ export default function AudioPlayer({
         sessionTokenRef.current = data.session.token;
         setIsSessionActive(true);
         if (audioRef.current && data.session.audio_url) {
-          // Only assign src if it's not already set to the same URL —
-          // reassigning the same src is what causes an unwanted reload.
           if (audioRef.current.getAttribute('src') !== data.session.audio_url) {
             audioRef.current.src = data.session.audio_url;
             audioRef.current.load();
@@ -126,19 +110,16 @@ export default function AudioPlayer({
       }
     } catch {
       setAudioError('Network error. Please try again.');
-      sessionStartedRef.current = false; // allow retry
+      sessionStartedRef.current = false;
     }
   }, [audioId]);
 
   useEffect(() => {
-    // Don't bother warming up a session for a track that's already
-    // completed and in cooldown — nothing to buffer for.
     if (statusChecked && !rewardClaimed) {
       warmUpSession();
     }
   }, [statusChecked, rewardClaimed, warmUpSession]);
 
-  // ── FEATURE 1: Tab Switch / Visibility Detection ───────────────
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!isSessionActive || isCompletedRef.current) return;
@@ -180,7 +161,6 @@ export default function AudioPlayer({
     };
   }, [isSessionActive, isPlaying]);
 
-  // ── FEATURE 2: Volume Enforcement (min 15%) ────────────────────
   useEffect(() => {
     if (!isSessionActive) return;
     volumeCheckInterval.current = setInterval(() => {
@@ -213,7 +193,6 @@ export default function AudioPlayer({
     };
   }, [isSessionActive]);
 
-  // ── Heartbeat ──────────────────────────────────────────────────
   const sendHeartbeat = useCallback(async () => {
     const token = sessionTokenRef.current;
     if (!token || !audioRef.current) return;
@@ -241,9 +220,9 @@ export default function AudioPlayer({
   useEffect(() => {
     if (!audioRef.current) return;
     audioRef.current.volume = volume;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Play / Pause ────────────────────────────────────────────────
   const togglePlay = async () => {
     if (!audioRef.current || audioLoading || rewardClaimed) return;
 
@@ -270,8 +249,6 @@ export default function AudioPlayer({
       audioRef.current.muted = false;
     }
 
-    // Session should already be warmed up from mount — this is just
-    // a safety net in case the initial warm-up failed.
     if (!isSessionActive) {
       setAudioLoading(true);
       sessionStartedRef.current = false;
@@ -290,7 +267,6 @@ export default function AudioPlayer({
     }
   };
 
-  // ── Retry handler ────────────────────────────────────────────
   const handleRetry = () => {
     setAudioError(null);
     setAudioReady(false);
@@ -300,7 +276,6 @@ export default function AudioPlayer({
     warmUpSession();
   };
 
-  // ── Reward claim (called after ad finishes) ─────────────────────
   const claimReward = useCallback(async () => {
     const token = sessionTokenRef.current;
     if (!token) { alert('Session error. Please refresh.'); return; }
@@ -348,7 +323,6 @@ export default function AudioPlayer({
     }
   }, [onComplete]);
 
-  // ── Time Update ─────────────────────────────────────────────────
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
     const current = audioRef.current.currentTime;
@@ -369,13 +343,13 @@ export default function AudioPlayer({
     lastValidTime.current = current;
     setCurrentTime(current);
     setProgress((current / duration) * 100);
+  };
 
-    // 100% completion — show the ad, reward comes after the ad.
-    if (current >= duration * 0.95 && !isCompleted && !isCompletedRef.current && !rewardClaimed) {
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    if (!isCompleted && !isCompletedRef.current && !rewardClaimed) {
       isCompletedRef.current = true;
       setIsCompleted(true);
-      setIsPlaying(false);
-      audioRef.current.pause();
       setShowAd(true);
     }
   };
@@ -385,7 +359,6 @@ export default function AudioPlayer({
     claimReward();
   };
 
-  // ── Volume Controls ────────────────────────────────────────────
   const toggleMute = () => {
     if (!audioRef.current) return;
     const newMuted = !isMuted;
@@ -406,13 +379,12 @@ export default function AudioPlayer({
   const formatCooldownDate = (d: Date) =>
     d.toLocaleDateString('en-PK', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  // ── UI ──────────────────────────────────────────────────────────
   return (
     <div className="w-full max-w-md mx-auto bg-white rounded-2xl shadow-lg p-4 sm:p-6 border border-gray-100">
       <audio
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={handleAudioEnded}
         onLoadStart={() => { setAudioLoading(true); setAudioError(null); }}
         onCanPlay={() => { setAudioLoading(false); setAudioReady(true); }}
         onWaiting={() => setAudioLoading(true)}
@@ -424,11 +396,9 @@ export default function AudioPlayer({
         }}
         preload="auto"
       >
-        {/* audioUrl kept only as a fallback poster; real src comes from the signed session URL */}
         <source src={audioUrl} type="audio/mpeg" />
       </audio>
 
-      {/* Header */}
       <div className="flex justify-between items-start mb-4 gap-2 sm:gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-base sm:text-xl font-bold truncate" title={title}>
@@ -437,19 +407,19 @@ export default function AudioPlayer({
           <p className="text-xs sm:text-sm text-gray-500">Duration: {formatTime(duration)}</p>
         </div>
         <div className="flex-shrink-0 bg-purple-100 text-purple-700 px-2.5 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap">
-          🪙 {rewardCoins}
+          Coins: {rewardCoins}
         </div>
       </div>
 
       {tabWarning && (
         <div className="mb-3 px-3 sm:px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs sm:text-sm font-medium">
-          ⚠️ Audio paused — you left this tab. Press Play to continue earning.
+          Audio paused, you left this tab. Press Play to continue earning.
         </div>
       )}
 
       {volumeWarning && (
         <div className="mb-3 px-3 sm:px-4 py-2 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-700 text-xs sm:text-sm font-medium">
-          🔊 Volume below 15%. Please increase to continue earning.
+          Volume below 15 percent. Please increase to continue earning.
         </div>
       )}
 
@@ -468,18 +438,17 @@ export default function AudioPlayer({
       {rewardClaimed && (
         <div className="mb-3 px-3 sm:px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
           <p className="text-green-700 text-xs sm:text-sm font-semibold">
-            ✅ Completed — reward already claimed.
+            Completed, reward already claimed.
           </p>
           {cooldownInfo.nextAvailable && (
             <p className="text-xs text-green-600 mt-1 break-words">
-              ⏳ Next available: {formatCooldownDate(cooldownInfo.nextAvailable)}
+              Next available: {formatCooldownDate(cooldownInfo.nextAvailable)}
               {cooldownInfo.days ? ` (${cooldownInfo.days} day${cooldownInfo.days > 1 ? 's' : ''} cooldown)` : ''}
             </p>
           )}
         </div>
       )}
 
-      {/* Progress Bar */}
       <div className="relative w-full h-2 bg-gray-200 rounded-full mb-2 cursor-default select-none">
         <div
           className="h-full bg-purple-600 rounded-full transition-all duration-300 pointer-events-none"
@@ -492,7 +461,6 @@ export default function AudioPlayer({
         <span>{formatTime(duration)}</span>
       </div>
 
-      {/* Controls */}
       <div className="flex items-center gap-3 sm:gap-4">
         <button
           onClick={togglePlay}
@@ -522,34 +490,33 @@ export default function AudioPlayer({
           </span>
         </div>
 
-        {/* Compact mute-only control for very small screens */}
         <button onClick={toggleMute} className="sm:hidden text-gray-500 hover:text-purple-600 flex-shrink-0">
           {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
         </button>
 
         <div className="text-xs sm:text-sm text-gray-500 font-medium flex-shrink-0">
-          {rewardClaimed ? '✅ Done' : `${Math.round(progress)}%`}
+          {rewardClaimed ? 'Done' : `${Math.round(progress)}%`}
         </div>
       </div>
 
       <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-        <p className="text-xs font-semibold text-amber-800 mb-1">📌 How to Earn:</p>
+        <p className="text-xs font-semibold text-amber-800 mb-1">How to Earn:</p>
         <ul className="text-xs text-amber-700 space-y-0.5">
           <li className={tabWarning ? 'text-red-600 font-bold' : ''}>
-            {tabWarning ? '❌' : '✅'} Listen without switching tabs
+            {tabWarning ? 'x' : 'ok'} Listen without switching tabs
           </li>
           <li className={volumeWarning ? 'text-red-600 font-bold' : ''}>
-            {volumeWarning ? '❌' : '✅'} Keep volume above 15%
+            {volumeWarning ? 'x' : 'ok'} Keep volume above 15%
           </li>
           <li className={skipAttempts.current >= 1 ? 'text-red-600 font-bold' : ''}>
-            {skipAttempts.current >= 1 ? '❌' : '✅'} Do not skip or fast-forward
+            {skipAttempts.current >= 1 ? 'x' : 'ok'} Do not skip or fast-forward
           </li>
           <li className={isCompleted ? 'text-green-600 font-bold' : ''}>
-            {isCompleted ? '✅' : '⏳'} Complete 100% of the audio, then watch a short ad
+            {isCompleted ? 'ok' : 'pending'} Complete 100% of the audio, then watch a short ad
           </li>
           {rewardClaimed && cooldownInfo.days && (
             <li className="text-purple-600 font-bold">
-              🔄 Cooldown: {cooldownInfo.days} day{cooldownInfo.days > 1 ? 's' : ''} between claims
+              Cooldown: {cooldownInfo.days} day{cooldownInfo.days > 1 ? 's' : ''} between claims
             </li>
           )}
         </ul>
@@ -562,7 +529,7 @@ export default function AudioPlayer({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="bg-white rounded-2xl p-6 flex flex-col items-center gap-3">
             <Loader2 className="animate-spin text-purple-600" size={28} />
-            <p className="text-sm font-medium text-gray-700">Granting your reward…</p>
+            <p className="text-sm font-medium text-gray-700">Granting your reward</p>
           </div>
         </div>
       )}
