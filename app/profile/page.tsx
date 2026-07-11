@@ -59,6 +59,7 @@ export default function ProfilePage() {
   // Settings states
   const [showSettings, setShowSettings] = useState(false);
   const [showContact, setShowContact] = useState(false);
+  const [showFaqs, setShowFaqs] = useState(false);
   const [openFaqs, setOpenFaqs] = useState<Set<number>>(new Set());
 
   const toggleFaq = (index: number) => {
@@ -337,37 +338,51 @@ export default function ProfilePage() {
               </div>
             )}
           </div>
-        </div>
 
-        {/* FAQs — each question toggles open/closed independently */}
-        <div className="bg-white rounded-2xl shadow overflow-hidden divide-y divide-gray-100">
-          <div className="flex items-center gap-3 p-4">
-            <HelpCircle className="w-5 h-5 text-gray-600" />
-            <span className="font-medium text-gray-800">Frequently Asked Questions</span>
-          </div>
-          {FAQS.map((faq, index) => {
-            const isOpen = openFaqs.has(index);
-            return (
-              <div key={index}>
-                <button
-                  onClick={() => toggleFaq(index)}
-                  className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-gray-50 transition"
-                >
-                  <span className="text-sm font-medium text-gray-800 pr-2">{faq.q}</span>
-                  {isOpen ? (
-                    <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
-                  )}
-                </button>
-                {isOpen && (
-                  <div className="px-4 pb-4">
-                    <p className="text-sm text-gray-500 leading-relaxed">{faq.a}</p>
-                  </div>
-                )}
+          <div>
+            <button
+              onClick={() => setShowFaqs(!showFaqs)}
+              className="w-full flex items-center justify-between gap-3 p-4 hover:bg-gray-50 transition"
+            >
+              <div className="flex items-center gap-3">
+                <HelpCircle className="w-5 h-5 text-gray-600" />
+                <span className="font-medium text-gray-800">Frequently Asked Questions</span>
               </div>
-            );
-          })}
+              {showFaqs ? (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+
+            {showFaqs && (
+              <div className="border-t border-gray-100 divide-y divide-gray-100">
+                {FAQS.map((faq, index) => {
+                  const isOpen = openFaqs.has(index);
+                  return (
+                    <div key={index}>
+                      <button
+                        onClick={() => toggleFaq(index)}
+                        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-purple-50 transition"
+                      >
+                        <span className="text-sm font-medium text-gray-800 pr-2">{faq.q}</span>
+                        {isOpen ? (
+                          <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+                        )}
+                      </button>
+                      {isOpen && (
+                        <div className="px-4 pb-4 bg-purple-50/30">
+                          <p className="text-sm text-gray-500 leading-relaxed">{faq.a}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Settings Panel — kept last */}
