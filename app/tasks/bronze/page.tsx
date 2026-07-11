@@ -10,10 +10,11 @@ import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
 import AdModal from '@/components/audio/AdModal'
 import AdBanner from '@/components/ads/AdBanner'
 
-// TODO: replace with your real smartlink URL (Adsterra/Monetag/etc.)
-// Keep this the SAME url as the one in LevelCompleteModal.tsx when you
-// update it, so all smartlink placements point at one real link.
-const SMARTLINK_URL = 'https://example.com/your-smartlink-here'
+// TODO: replace with your real Monetag Direct Link URL once you have it.
+// Monetag's "Direct Link" ad type is exactly this — a URL you open in a
+// new tab; revenue is generated on that click/visit. Keep this the SAME
+// url as the one in LevelCompleteModal.tsx once you fill it in.
+const MONETAG_DIRECT_LINK_URL = 'https://YOUR_MONETAG_DIRECT_LINK_HERE'
 
 interface CurrentAudio {
   id: string
@@ -192,11 +193,12 @@ export default function BronzeLevelPage() {
   }
 
   const handleNextAudio = () => {
-    // Smartlink milestone (5/10): open it in a new tab first — this is the
-    // extra ad revenue placement. It never blocks continuing; the user
-    // moves to the next audio the same click regardless of the new tab.
+    // Smartlink milestone (5/10): open the Monetag Direct Link in a new tab
+    // first — this is the extra ad revenue placement. It never blocks
+    // continuing; the user moves to the next audio the same click
+    // regardless of the new tab.
     if (pendingSmartlinkMilestone) {
-      window.open(SMARTLINK_URL, '_blank')
+      window.open(MONETAG_DIRECT_LINK_URL, '_blank')
     }
     if (!pendingNextAudio) {
       fetchStatus()

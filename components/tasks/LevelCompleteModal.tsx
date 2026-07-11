@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import { PartyPopper, Coins, Gift, Loader2 } from 'lucide-react'
 
-// TODO: replace with your real smartlink URL (Adsterra/Monetag/etc.)
-const SMARTLINK_URL = 'https://example.com/your-smartlink-here'
+// TODO: replace with your real Monetag Direct Link URL — keep this the
+// SAME url as MONETAG_DIRECT_LINK_URL in app/tasks/bronze/page.tsx.
+const MONETAG_DIRECT_LINK_URL = 'https://YOUR_MONETAG_DIRECT_LINK_HERE'
 
 interface LevelCompleteModalProps {
   rewardCoins: number
@@ -17,10 +18,10 @@ export default function LevelCompleteModal({ rewardCoins, bonusCoins, onClose }:
   const [bonusError, setBonusError] = useState<string | null>(null)
 
   const handleClaimBonus = async () => {
-    // Opens the optional smartlink — this is where the extra ad revenue
+    // Opens the Monetag Direct Link — this is where the extra ad revenue
     // comes from. Whether the user actually engages with it or not, we
     // still credit the bonus on click (it's an opt-in bonus, not a gate).
-    window.open(SMARTLINK_URL, '_blank')
+    window.open(MONETAG_DIRECT_LINK_URL, '_blank')
     setBonusState('claiming')
     setBonusError(null)
     try {

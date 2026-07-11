@@ -11,10 +11,14 @@ interface AdModalProps {
   errorMessage?: string | null;
 }
 
+// TODO: Replace with your real Monetag Vignette/Interstitial zone ID once
+// you have a Monetag account. Left inactive as a placeholder for now.
+const MONETAG_INTERSTITIAL_ZONE_ID = 'YOUR_MONETAG_ZONE_ID';
+
 export default function AdModal({
   onFinished,
   rewardCoins,
-  adDurationSeconds = 30, // reduced from 45s — keep in sync with MIN_AD_SECONDS in ads/verify/route.ts
+  adDurationSeconds = 30, // keep in sync with MIN_AD_SECONDS in ads/verify/route.ts
   claiming = false,
   errorMessage = null,
 }: AdModalProps) {
@@ -24,6 +28,7 @@ export default function AdModal({
   const [backWarning, setBackWarning] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
+  const adContainerRef = useRef<HTMLDivElement>(null);
 
   // Countdown — pauses whenever the tab is hidden, so switching tabs can
   // never let the timer run out "for free" in the background.
@@ -74,6 +79,28 @@ export default function AdModal({
     return () => clearTimeout(timer);
   }, []);
 
+  // Injects the real Monetag Vignette/Interstitial script once you fill in
+  // the zone ID above. Inactive placeholder until then — nothing broken
+  // loads in the meantime, the static preview below just keeps showing.
+  useEffect(() => {
+    if (MONETAG_INTERSTITIAL_ZONE_ID === 'YOUR_MONETAG_ZONE_ID') return;
+    const container = adContainerRef.current;
+    if (!container) return;
+
+    const script = document.createElement('script');
+    script.async = true;
+    // ⚠️ Replace with the exact <script> src Monetag gives you for this
+    // Vignette/Interstitial zone — copy it verbatim from your Monetag
+    // dashboard, the URL format varies by account/zone type.
+    script.src = `https://YOUR_MONETAG_SCRIPT_DOMAIN/vignette.min.js`;
+    script.setAttribute('data-zone', MONETAG_INTERSTITIAL_ZONE_ID);
+    container.appendChild(script);
+
+    return () => {
+      script.remove();
+    };
+  }, []);
+
   const canContinue = secondsLeft <= 0 && adLoaded;
 
   return (
@@ -83,9 +110,11 @@ export default function AdModal({
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-4">
       <div className="w-full max-w-sm bg-white rounded-2xl flex flex-col overflow-hidden max-h-[92dvh]">
 
-        <div className="aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-4 text-center relative shrink-0">
-
-          <div id="adsterra-fullscreen" className="w-full h-full flex items-center justify-center">
+        <div
+          ref={adContainerRef}
+          className="aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-4 text-center relative shrink-0"
+        >
+          <div id="monetag-interstitial" className="w-full h-full flex items-center justify-center">
             {!adLoaded ? (
               <div className="text-center">
                 <div className="animate-spin rounded-full h-9 w-9 border-2 border-white/30 border-t-white mx-auto mb-2" />
@@ -94,10 +123,10 @@ export default function AdModal({
             ) : (
               <div className="text-center">
                 <p className="text-3xl mb-2">📺</p>
-                <p className="text-sm font-medium">Adsterra Full Screen Ad</p>
-                <p className="text-xs opacity-70 mt-1">Replace with your Adsterra code</p>
+                <p className="text-sm font-medium">Monetag Interstitial Ad</p>
+                <p className="text-xs opacity-70 mt-1">Replace with your Monetag zone code</p>
                 <div className="mt-2 p-2 bg-white/10 rounded-lg text-xs">
-                  <code className="opacity-60">Adsterra Interstitial Code Here</code>
+                  <code className="opacity-60">Monetag Vignette/Interstitial Zone Here</code>
                 </div>
               </div>
             )}
