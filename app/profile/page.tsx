@@ -6,13 +6,49 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
   Mail, Calendar, LogOut, Settings, Edit, Lock,
-  ShieldCheck, FileText, Phone, MessageCircle, ChevronRight, ChevronDown
+  ShieldCheck, FileText, Phone, MessageCircle, ChevronRight, ChevronDown,
+  HelpCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const CONTACT_EMAIL = 'awaisealtaf@gmail.com';
 const CONTACT_WHATSAPP = '923267886564'; // country code + number, no leading 0 or +
 const PROFILE_CACHE_KEY = 'profile_cache';
+
+const FAQS = [
+  {
+    q: 'What is this website, and how can I earn from it?',
+    a: 'This is a micro-tasking and rewarded platform where you are assigned daily audio tasks. All you need to do is listen to the short audio clips and submit your responses. Every completed task awards you coins/points, which can later be converted into real cash.',
+  },
+  {
+    q: 'What is the 2x Booster Button, and how does it benefit me?',
+    a: 'Once you successfully complete all 15 daily tasks, you will be presented with two payout options. Choosing the normal payout grants you the standard base reward. However, clicking the "2x Booster Button" opens a secure page from our official sponsor. If you stay on that sponsor page for just 15 seconds, your final reward is more than normal reward.',
+  },
+  {
+    q: 'How do I withdraw my earnings directly to EasyPaisa or JazzCash?',
+    a: 'We process withdrawals directly to local payment methods. Once your accumulated coins reach the minimum payout threshold, simply navigate to the wallet section, select your preferred method (EasyPaisa or JazzCash), enter your details, and submit a request. Payments are generally processed within 24 to 48 hours.',
+  },
+  {
+    q: 'Can I create multiple accounts to earn faster?',
+    a: 'Strictly No. Our platform employs an advanced security system that monitors unique IP addresses and device fingerprints. If multiple accounts are detected operating under the same device or Wi-Fi network, all connected accounts will be permanently banned, and their balances will be forfeited.',
+  },
+  {
+    q: "I completed a task, but my coins weren't added. What went wrong?",
+    a: 'This typically happens if your internet connection drops momentarily or if you close/navigate away from the page before the countdown timer fully finishes. To avoid this, always stay on the activity page until you see the official "Success / Coins Credited" confirmation message.',
+  },
+  {
+    q: 'How many tasks do I get per day, and when do they reset?',
+    a: 'Every registered user receives a fresh batch of 15 high-paying audio tasks daily. These tasks automatically reset every 24 hours at 12:00 AM (Midnight), allowing you to start your next session and earn again the following day.',
+  },
+  {
+    q: 'Is there any registration fee or investment required to join?',
+    a: 'No, this platform is 100% free to use. You will never be asked to invest money or pay any activation/upgradation fees to unlock tasks or request withdrawals.',
+  },
+  {
+    q: 'What happens if someone tries to bypass tasks or use automated bots?',
+    a: 'We maintain a zero-tolerance policy against fraudulent activity. Our system instantly flags unauthorized scripts, ad-blockers, or automated bot clicks. Any attempt to exploit the platform will result in an immediate reset of your wallet balance to zero and a permanent hardware ban on your device.',
+  },
+]
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -23,6 +59,16 @@ export default function ProfilePage() {
   // Settings states
   const [showSettings, setShowSettings] = useState(false);
   const [showContact, setShowContact] = useState(false);
+  const [openFaqs, setOpenFaqs] = useState<Set<number>>(new Set());
+
+  const toggleFaq = (index: number) => {
+    setOpenFaqs((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
   const [showNameModal, setShowNameModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newName, setNewName] = useState('');
@@ -219,6 +265,11 @@ export default function ProfilePage() {
           </div>
         </div>
 
+        {/* Support & Contact */}
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider px-1 pt-2">
+          Support &amp; Contact
+        </h3>
+
         {/* Privacy Policy / Terms of Use / Contact */}
         <div className="bg-white rounded-2xl shadow overflow-hidden divide-y divide-gray-100">
           <Link
@@ -286,6 +337,37 @@ export default function ProfilePage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* FAQs — each question toggles open/closed independently */}
+        <div className="bg-white rounded-2xl shadow overflow-hidden divide-y divide-gray-100">
+          <div className="flex items-center gap-3 p-4">
+            <HelpCircle className="w-5 h-5 text-gray-600" />
+            <span className="font-medium text-gray-800">Frequently Asked Questions</span>
+          </div>
+          {FAQS.map((faq, index) => {
+            const isOpen = openFaqs.has(index);
+            return (
+              <div key={index}>
+                <button
+                  onClick={() => toggleFaq(index)}
+                  className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-gray-50 transition"
+                >
+                  <span className="text-sm font-medium text-gray-800 pr-2">{faq.q}</span>
+                  {isOpen ? (
+                    <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+                  )}
+                </button>
+                {isOpen && (
+                  <div className="px-4 pb-4">
+                    <p className="text-sm text-gray-500 leading-relaxed">{faq.a}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Settings Panel — kept last */}
