@@ -6,7 +6,7 @@ import { Loader2 } from 'lucide-react';
 interface AdModalProps {
   onFinished: () => void;
   rewardCoins: number;
-  adDurationSeconds?: number; // default below matches server MIN_AD_SECONDS in ads/verify route
+  adDurationSeconds?: number;
   claiming?: boolean;
   errorMessage?: string | null;
 }
@@ -14,7 +14,7 @@ interface AdModalProps {
 export default function AdModal({
   onFinished,
   rewardCoins,
-  adDurationSeconds = 45, // 45s — keep this in sync with MIN_AD_SECONDS in ads/verify/route.ts
+  adDurationSeconds = 45,
   claiming = false,
   errorMessage = null,
 }: AdModalProps) {
@@ -25,11 +25,9 @@ export default function AdModal({
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  // ── Countdown — pauses whenever the tab is hidden, so switching tabs
-  // can never let the timer run out "for free" in the background.
   useEffect(() => {
     timerRef.current = setInterval(() => {
-      if (document.visibilityState !== 'visible') return; // frozen while hidden
+      if (document.visibilityState !== 'visible') return;
       setSecondsLeft((s) => {
         if (s <= 1) {
           if (timerRef.current) clearInterval(timerRef.current);
@@ -51,9 +49,6 @@ export default function AdModal({
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
-  // ── Back-button trap — while the ad modal is open, pressing back (or a
-  // back-swipe gesture) must not be able to leave/skip it. We push an extra
-  // history entry and immediately re-push it if the user tries to pop it.
   useEffect(() => {
     window.history.pushState({ adGuard: true }, '');
     const handlePopState = () => {
@@ -77,41 +72,44 @@ export default function AdModal({
   const canContinue = secondsLeft <= 0 && adLoaded;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 sm:p-4">
-      <div className="w-full h-full sm:h-auto sm:max-w-sm bg-white sm:rounded-2xl flex flex-col overflow-hidden">
+    // z-[999] + always-centered bounded card (no h-full stretch on mobile) —
+    // this is what guarantees the Claim button is always on-screen, never
+    // pinned below the fold behind a site's bottom nav bar or mobile browser chrome.
+    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-sm bg-white rounded-2xl flex flex-col overflow-hidden max-h-[92dvh]">
 
-        <div className="flex-1 sm:flex-none sm:aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-6 text-center relative">
+        <div className="aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-4 text-center relative shrink-0">
 
           <div id="adsterra-fullscreen" className="w-full h-full flex items-center justify-center">
             {!adLoaded ? (
               <div className="text-center">
-                <div className="animate-spin rounded-full h-10 w-10 border-2 border-white/30 border-t-white mx-auto mb-3" />
-                <p className="text-sm opacity-80">Loading ad...</p>
+                <div className="animate-spin rounded-full h-9 w-9 border-2 border-white/30 border-t-white mx-auto mb-2" />
+                <p className="text-xs opacity-80">Loading ad...</p>
               </div>
             ) : (
               <div className="text-center">
-                <p className="text-4xl mb-3">📺</p>
+                <p className="text-3xl mb-2">📺</p>
                 <p className="text-sm font-medium">Adsterra Full Screen Ad</p>
                 <p className="text-xs opacity-70 mt-1">Replace with your Adsterra code</p>
-                <div className="mt-3 p-2 bg-white/10 rounded-lg text-xs">
+                <div className="mt-2 p-2 bg-white/10 rounded-lg text-xs">
                   <code className="opacity-60">Adsterra Interstitial Code Here</code>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="absolute top-3 right-3 bg-black/50 text-white text-xs px-3 py-1 rounded-full">
+          <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2.5 py-1 rounded-full">
             {canContinue ? 'Done' : `${secondsLeft}s`}
           </div>
 
           {tabWarning && (
-            <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-6 text-center">
-              <p className="text-sm font-semibold">Come back to this tab — the ad timer is paused until you do.</p>
+            <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-4 text-center">
+              <p className="text-xs font-semibold">Come back to this tab — the ad timer is paused until you do.</p>
             </div>
           )}
         </div>
 
-        <div className="p-4 sm:p-5 border-t border-gray-100">
+        <div className="p-4 border-t border-gray-100 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {backWarning && (
             <p className="text-xs text-red-600 mb-2 text-center font-semibold">
               You must finish watching this ad to continue.

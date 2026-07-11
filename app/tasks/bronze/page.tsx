@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import LevelProgress from '@/components/tasks/LevelProgress'
 import LevelAudioCard from '@/components/tasks/LevelAudioCard'
@@ -43,12 +43,24 @@ export default function BronzeLevelPage() {
   const [adError, setAdError] = useState<string | null>(null)
   const [showComplete, setShowComplete] = useState(false)
   const [countdown, setCountdown] = useState('')
+
+  // ── Manual "Next Audio" gate ──────────────────────────────────────
+  // We no longer swap to the next audio automatically the instant a
+  // /complete call succeeds. The next audio (already fetched from the
+  // server) sits here until the user explicitly taps "Next Audio".
+  const [pendingNextAudio, setPendingNextAudio] = useState<CurrentAudio | null>(null)
+  const [awaitingNext, setAwaitingNext] = useState(false)
+
   const pendingClaimRef = useRef(false)
   const adSessionStartedRef = useRef(false)
+  // Guards against the same audio's completion being submitted twice
+  // (double onEnded fire, fast refresh, etc.) — the root cause of the
+  // "audio out of order or already completed" toast showing up spuriously.
+  const submittingAudioRef = useRef<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks/level/status', { cache: 'no-store' })
+      const res = await fetch('/api/tasks/level/status')
       if (res.status === 401) {
         toast.error('Please login to continue')
         setLoading(false)
@@ -56,6 +68,8 @@ export default function BronzeLevelPage() {
       }
       const statusData: StatusResponse = await res.json()
       setStatus(statusData)
+      setPendingNextAudio(null)
+      setAwaitingNext(false)
 
       if (statusData.ad_required && statusData.milestone) {
         setAdMilestone(statusData.milestone)
@@ -99,7 +113,7 @@ export default function BronzeLevelPage() {
 
   const claimReward = async () => {
     try {
-      const res = await fetch('/api/tasks/level/claim', { method: 'POST', cache: 'no-store' })
+      const res = await fetch('/api/tasks/level/claim', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) {
         toast.error(data.error || 'Could not claim your reward', {
@@ -117,15 +131,17 @@ export default function BronzeLevelPage() {
     }
   }
 
-  // sessionToken now travels with the audio_id so the server can verify
-  // real playback (see complete/route.ts) instead of trusting the id alone.
+  // sessionToken travels with the audio_id so the server can verify real
+  // playback. This no longer auto-advances the UI — it only fetches what
+  // the next audio *would* be and waits for an explicit "Next Audio" tap.
   const handleAudioFinished = async (audioId: string, sessionToken: string | null) => {
+    if (submittingAudioRef.current === audioId) return // already in flight, ignore duplicate fire
+    submittingAudioRef.current = audioId
     try {
       const res = await fetch('/api/tasks/level/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ audio_id: audioId, session_token: sessionToken }),
-        cache: 'no-store',
       })
       const data = await res.json()
 
@@ -135,22 +151,14 @@ export default function BronzeLevelPage() {
           setShowAd(true)
           return
         }
-        // "Audio out of order or already completed" / "Audio already completed"
-        // means the client's local view of progress has drifted from the
-        // server (e.g. a duplicate request after a refresh). Retrying with
-        // the SAME audioId would just fail again — instead, resync from the
-        // server so the correct current audio is shown.
-        if (
-          data.error === 'Audio out of order or already completed' ||
-          data.error === 'Audio already completed'
-        ) {
-          toast.error('Progress had drifted — reloading your current audio…')
-          await fetchStatus()
-          return
-        }
+        // Already-completed/out-of-order errors usually mean the server
+        // already has this audio recorded (e.g. from a request that
+        // succeeded right before a refresh) — resync instead of just
+        // complaining, so the user isn't stuck looking at a stale screen.
         toast.error(data.error || 'Could not save progress', {
-          action: { label: 'Retry', onClick: () => handleAudioFinished(audioId, sessionToken) },
+          action: { label: 'Retry', onClick: () => fetchStatus() },
         })
+        await fetchStatus()
         return
       }
 
@@ -167,25 +175,35 @@ export default function BronzeLevelPage() {
       } else if (data.level_complete) {
         await fetchStatus()
       } else if (data.next_audio) {
-        setStatus(prev => prev ? {
-          ...prev,
-          completed_audios: finished,
-          current_audio: data.next_audio,
-        } : prev)
+        // Update the completed count immediately, but hold the next audio
+        // back until the user taps "Next Audio".
+        setStatus(prev => prev ? { ...prev, completed_audios: finished } : prev)
+        setPendingNextAudio(data.next_audio)
+        setAwaitingNext(true)
       } else {
-        // Shouldn't normally happen, but if the server didn't hand back a
-        // next audio for some reason, don't leave the UI stuck silently —
-        // tell the user why and resync.
-        toast.error('Could not load the next audio. Refreshing your progress…', {
-          action: { label: 'Retry', onClick: () => fetchStatus() },
+        // Success, but server didn't hand back a next audio — tell the
+        // user why instead of leaving them on a dead screen.
+        toast.error('Could not load the next audio. Please refresh.', {
+          action: { label: 'Refresh', onClick: () => fetchStatus() },
         })
-        await fetchStatus()
       }
     } catch {
       toast.error('Network error while saving progress', {
         action: { label: 'Retry', onClick: () => handleAudioFinished(audioId, sessionToken) },
       })
+    } finally {
+      submittingAudioRef.current = null
     }
+  }
+
+  const handleNextAudio = () => {
+    if (!pendingNextAudio) {
+      fetchStatus()
+      return
+    }
+    setStatus(prev => prev ? { ...prev, current_audio: pendingNextAudio } : prev)
+    setPendingNextAudio(null)
+    setAwaitingNext(false)
   }
 
   useEffect(() => {
@@ -216,7 +234,7 @@ export default function BronzeLevelPage() {
       if (data.isFinalMilestone) {
         await claimReward()
       } else {
-        toast.success('15 coins locked in! Finish all 15 audios to add them to your wallet.')
+        toast.success('Coins locked in! Finish all 15 audios to add them to your wallet.')
       }
       await fetchStatus()
     } catch {
@@ -269,7 +287,22 @@ export default function BronzeLevelPage() {
           />
         )}
 
-        {!status?.locked && !status?.current_audio && !status?.level_complete && !showAd && (
+        {/* Manual gate — audio does NOT auto-advance. User must tap this. */}
+        {!status?.locked && !showAd && awaitingNext && (
+          <div className="bg-white rounded-2xl shadow border border-green-100 p-5 text-center">
+            <p className="text-sm font-semibold text-green-700 mb-3">
+              Audio complete! Ready for the next one?
+            </p>
+            <button
+              onClick={handleNextAudio}
+              className="w-full py-3 rounded-xl bg-[#6C63FF] text-white font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
+            >
+              Next Audio <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {!status?.locked && !status?.current_audio && !status?.level_complete && !showAd && !awaitingNext && (
           <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500 bg-white">
             New audios coming soon. Check back shortly!
           </div>
@@ -282,7 +315,6 @@ export default function BronzeLevelPage() {
         <AdModal
           onFinished={handleAdClaim}
           rewardCoins={AD_MILESTONE_DISPLAY_COINS}
-          adDurationSeconds={30}
           claiming={adClaiming}
           errorMessage={adError}
         />
