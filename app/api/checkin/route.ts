@@ -8,10 +8,10 @@ const supabaseAdmin = createAdminClient(
 
 // Streak bonus logic
 function getStreakReward(streak: number): number {
-  if (streak >= 30) return 500
-  if (streak >= 14) return 100
-  if (streak >= 7)  return 50
-  return 10
+  if (streak >= 30) return 30
+  if (streak >= 14) return 20
+  if (streak >= 7)  return 15
+  return 5
 }
 
 // GET — check if claimed today
