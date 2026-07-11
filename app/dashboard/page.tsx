@@ -37,6 +37,17 @@ interface StreakData {
   next_reward: number
 }
 
+// Mirrors getStreakReward() in app/api/checkin/route.ts. These two MUST be
+// kept in sync manually since one lives in the API and one is just a
+// display preview — this was the actual bug: the milestone boxes below used
+// to have their own unrelated numbers (50/100/500) hardcoded here, which
+// never changed when the backend reward logic changed.
+const STREAK_MILESTONES = [
+  { day: 7, reward: 15, icon: '🌟' },
+  { day: 14, reward: 20, icon: '💎' },
+  { day: 30, reward: 30, icon: '👑' },
+]
+
 export default function DashboardPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -326,12 +337,11 @@ export default function DashboardPage() {
                 ) : null}
               </div>
 
+              {/* These numbers now come from the single STREAK_MILESTONES
+                  constant above, matching getStreakReward() in the API
+                  route — no more separate hardcoded 50/100/500. */}
               <div className="flex gap-2 mb-3">
-                {[
-                  { day: 7, reward: 50, icon: '🌟' },
-                  { day: 14, reward: 100, icon: '💎' },
-                  { day: 30, reward: 500, icon: '👑' },
-                ].map((m) => (
+                {STREAK_MILESTONES.map((m) => (
                   <div key={m.day} className={`flex-1 rounded-lg p-1.5 text-center text-xs border ${
                     (streak?.current_streak || 0) >= m.day
                       ? 'bg-green-100 border-green-300 text-green-700'
@@ -347,7 +357,7 @@ export default function DashboardPage() {
               <p className="text-xs text-gray-500">
                 {streak?.claimed
                   ? '✅ Claimed today! Come back tomorrow.'
-                  : `Claim now → +${streak?.next_reward || 10} coins`}
+                  : `Claim now → +${streak?.next_reward ?? 5} coins`}
               </p>
             </div>
 
