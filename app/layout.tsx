@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Toaster } from "sonner";
@@ -13,6 +13,18 @@ export const metadata: Metadata = {
   icons: {
     icon: "/logo.png",
   },
+};
+
+// This was the actual cause of "zoomed out on mobile but fine on laptop".
+// Without a viewport export, mobile browsers assume the page was built for
+// a ~980px desktop layout and shrink everything to fit — resizing a
+// desktop browser window never reproduces this, which is why it looked
+// fine there. maximumScale/userScalable here also disable pinch-zoom.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({

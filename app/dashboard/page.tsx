@@ -93,7 +93,7 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(channel) }
   }, [data?.user_id])
 
-  const loadDashboard = async () => {
+  const loadDashboard = async (isBackgroundRefresh = false) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
@@ -101,7 +101,14 @@ export default function DashboardPage() {
       abortControllerRef.current = new AbortController()
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 8000)
 
-      const [profileRes, walletRes, txRes, streakRes] = await Promise.all([
+      const sevenDaysAgo = new Date()
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
+      // Everything runs in ONE parallel batch now (previously referralCount
+      // and earnings7d were separate awaits AFTER this block, adding two
+      // extra full network round-trips — on a slower mobile connection
+      // that's exactly the delay that made this screen feel like a reload).
+      const [profileRes, walletRes, txRes, streakRes, referralRes, earningsRes] = await Promise.all([
         supabase.from('users').select('username, full_name').eq('id', user.id).single(),
         supabase.from('wallets').select('coin_balance, total_earned, total_withdrawn').eq('user_id', user.id).single(),
         supabase.from('transactions')
@@ -109,51 +116,59 @@ export default function DashboardPage() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(5),
-        fetch(`/api/checkin?user_id=${user.id}`, { 
+        fetch(`/api/checkin?user_id=${user.id}`, {
           signal: abortControllerRef.current.signal,
         }).then(r => r.json()).catch(() => null),
+        supabase.from('referrals')
+          .select('id', { count: 'exact', head: true })
+          .eq('referrer_id', user.id)
+          .eq('status', 'rewarded'),
+        supabase.from('transactions')
+          .select('coins_amount')
+          .eq('user_id', user.id)
+          .gte('created_at', sevenDaysAgo.toISOString())
+          .neq('type', 'withdrawal'),
       ])
 
       clearTimeout(timeoutId)
 
-      setData({
+      const nextData: DashboardData = {
         user_id: user.id,
         username: profileRes.data?.username || '',
         full_name: profileRes.data?.full_name || '',
         coin_balance: walletRes.data?.coin_balance || 0,
         total_earned: walletRes.data?.total_earned || 0,
         total_withdrawn: walletRes.data?.total_withdrawn || 0,
-      })
-      setTransactions(txRes.data || [])
-      setStreak(streakRes)
+      }
+      const nextTransactions = txRes.data || []
+      const nextStreak = streakRes
+      const nextReferralCount = referralRes.count || 0
+      const nextEarnings7d = earningsRes.data?.reduce((sum, tx) => sum + tx.coins_amount, 0) || 0
 
-      // Load referral count
-      const { count: referrals } = await supabase
-        .from('referrals')
-        .select('id', { count: 'exact', head: true })
-        .eq('referrer_id', user.id)
-        .eq('status', 'rewarded')
+      setData(nextData)
+      setTransactions(nextTransactions)
+      setStreak(nextStreak)
+      setReferralCount(nextReferralCount)
+      setEarnings7d(nextEarnings7d)
 
-      setReferralCount(referrals || 0)
-
-      // Load 7 days earnings
-      const sevenDaysAgo = new Date()
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-      
-      const { data: earningsData } = await supabase
-        .from('transactions')
-        .select('coins_amount')
-        .eq('user_id', user.id)
-        .gte('created_at', sevenDaysAgo.toISOString())
-        .neq('type', 'withdrawal')
-
-      const totalEarnings = earningsData?.reduce((sum, tx) => sum + tx.coins_amount, 0) || 0
-      setEarnings7d(totalEarnings)
+      // Cache a snapshot so the NEXT time this page mounts, we can paint
+      // instantly from cache instead of showing a blank spinner while
+      // network requests are in flight — this is what removes the
+      // "feels like a reload" effect on repeat visits.
+      try {
+        sessionStorage.setItem('dashboard_cache', JSON.stringify({
+          data: nextData,
+          transactions: nextTransactions,
+          streak: nextStreak,
+          referralCount: nextReferralCount,
+          earnings7d: nextEarnings7d,
+        }))
+      } catch { /* sessionStorage can fail in private mode — non-fatal */ }
 
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('Request timeout')
-      } else {
+      } else if (!isBackgroundRefresh) {
         toast.error('Error loading dashboard')
       }
     } finally {
