@@ -16,6 +16,8 @@ interface StatusResponse {
   total_audios: number
 }
 
+const TASKS_CACHE_KEY = 'tasks_cache'
+
 export default function TasksHubPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -23,7 +25,7 @@ export default function TasksHubPage() {
   const [firstWithdrawalDone, setFirstWithdrawalDone] = useState(false)
   const [countdown, setCountdown] = useState('')
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (isBackgroundRefresh = false) => {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
@@ -38,14 +40,42 @@ export default function TasksHubPage() {
       setStatus(statusData)
       const paid = (withdrawalData.withdrawals || []).some((w: any) => w.status === 'paid')
       setFirstWithdrawalDone(paid)
+
+      // Cache a snapshot so the NEXT time this page mounts, we can paint
+      // instantly from cache instead of showing a blank spinner while
+      // network requests are in flight.
+      try {
+        sessionStorage.setItem(TASKS_CACHE_KEY, JSON.stringify({
+          status: statusData,
+          firstWithdrawalDone: paid,
+        }))
+      } catch { /* sessionStorage can fail in private mode — non-fatal */ }
     } catch (err) {
-      console.error('fetchStatus error:', err)
+      if (!isBackgroundRefresh) console.error('fetchStatus error:', err)
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { fetchStatus() }, [fetchStatus])
+  useEffect(() => {
+    // Hydrate instantly from the cached snapshot (if any) so this page
+    // paints immediately instead of showing a blank spinner on every
+    // visit — the fresh network request below still runs in the
+    // background and silently replaces this data when it arrives.
+    let hadCache = false
+    try {
+      const cached = sessionStorage.getItem(TASKS_CACHE_KEY)
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        setStatus(parsed.status)
+        setFirstWithdrawalDone(parsed.firstWithdrawalDone)
+        setLoading(false)
+        hadCache = true
+      }
+    } catch { /* corrupt/missing cache — fall back to normal spinner load */ }
+
+    fetchStatus(hadCache)
+  }, [fetchStatus])
 
   useEffect(() => {
     if (!status?.locked || !status.locked_until) return

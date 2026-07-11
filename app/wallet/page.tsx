@@ -38,6 +38,8 @@ const TX_META: Record<string, { icon: string; label: string; color: string }> = 
   admin_deduct:  { icon: '➖', label: 'Deduction',       color: 'text-red-600'   },
 }
 
+const WALLET_CACHE_KEY = 'wallet_cache'
+
 export default function WalletPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -48,7 +50,25 @@ export default function WalletPage() {
   const [filter, setFilter] = useState<FilterType>('all')
   const [userId, setUserId] = useState<string | null>(null)
 
-  useEffect(() => { loadWallet() }, [])
+  useEffect(() => {
+    // Hydrate instantly from the cached snapshot (if any) so this page
+    // paints immediately instead of showing a blank spinner on every
+    // visit — the fresh network request below still runs in the
+    // background and silently replaces this data when it arrives.
+    let hadCache = false
+    try {
+      const cached = sessionStorage.getItem(WALLET_CACHE_KEY)
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        setWallet(parsed.wallet)
+        setTransactions(parsed.transactions)
+        setLoading(false)
+        hadCache = true
+      }
+    } catch { /* corrupt/missing cache — fall back to normal spinner load */ }
+
+    loadWallet(hadCache)
+  }, [])
 
   // Realtime wallet updates
   useEffect(() => {
@@ -69,7 +89,7 @@ export default function WalletPage() {
     return () => { supabase.removeChannel(channel) }
   }, [userId])
 
-  const loadWallet = async () => {
+  const loadWallet = async (isBackgroundRefresh = false) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
@@ -90,8 +110,18 @@ export default function WalletPage() {
 
       setWallet(w)
       setTransactions(txs || [])
+
+      // Cache a snapshot so the NEXT time this page mounts, we can paint
+      // instantly from cache instead of showing a blank spinner while
+      // network requests are in flight.
+      try {
+        sessionStorage.setItem(WALLET_CACHE_KEY, JSON.stringify({
+          wallet: w,
+          transactions: txs || [],
+        }))
+      } catch { /* sessionStorage can fail in private mode — non-fatal */ }
     } catch {
-      toast.error('Error loading wallet')
+      if (!isBackgroundRefresh) toast.error('Error loading wallet')
     } finally {
       setLoading(false)
     }

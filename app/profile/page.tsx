@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 
 const CONTACT_EMAIL = 'awaisealtaf@gmail.com';
 const CONTACT_WHATSAPP = '923267886564'; // country code + number, no leading 0 or +
+const PROFILE_CACHE_KEY = 'profile_cache';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -31,10 +32,26 @@ export default function ProfilePage() {
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
-    loadProfile();
+    // Hydrate instantly from the cached snapshot (if any) so this page
+    // paints immediately instead of showing a blank spinner on every
+    // visit — the fresh network request below still runs in the
+    // background and silently replaces this data when it arrives.
+    let hadCache = false;
+    try {
+      const cached = sessionStorage.getItem(PROFILE_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setUser(parsed.user);
+        setNewName(parsed.newName || '');
+        setLoading(false);
+        hadCache = true;
+      }
+    } catch { /* corrupt/missing cache — fall back to normal spinner load */ }
+
+    loadProfile(hadCache);
   }, []);
 
-  const loadProfile = async () => {
+  const loadProfile = async (isBackgroundRefresh = false) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/auth/login'); return; }
@@ -45,10 +62,23 @@ export default function ProfilePage() {
         .eq('id', user.id)
         .single();
 
-      setUser({ ...user, ...profile });
-      setNewName(profile?.full_name || '');
+      const nextUser = { ...user, ...profile };
+      const nextNewName = profile?.full_name || '';
+
+      setUser(nextUser);
+      setNewName(nextNewName);
+
+      // Cache a snapshot so the NEXT time this page mounts, we can paint
+      // instantly from cache instead of showing a blank spinner while
+      // network requests are in flight.
+      try {
+        sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify({
+          user: nextUser,
+          newName: nextNewName,
+        }));
+      } catch { /* sessionStorage can fail in private mode — non-fatal */ }
     } catch (error) {
-      console.error('Profile error:', error);
+      if (!isBackgroundRefresh) console.error('Profile error:', error);
     } finally {
       setLoading(false);
     }
@@ -56,6 +86,7 @@ export default function ProfilePage() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    try { sessionStorage.removeItem(PROFILE_CACHE_KEY); } catch { /* non-fatal */ }
     router.push('/');
   };
 
@@ -75,7 +106,14 @@ export default function ProfilePage() {
 
       if (error) throw error;
 
-      setUser({ ...user, full_name: newName });
+      const updatedUser = { ...user, full_name: newName };
+      setUser(updatedUser);
+      try {
+        sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify({
+          user: updatedUser,
+          newName,
+        }));
+      } catch { /* non-fatal */ }
       toast.success('Name updated successfully!');
       setShowNameModal(false);
     } catch (error: any) {
