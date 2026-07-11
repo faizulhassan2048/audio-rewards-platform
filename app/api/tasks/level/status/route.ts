@@ -64,6 +64,7 @@ export async function GET() {
         pending_ad_milestone: null,
         ad_session_started_at: null,
         ad_milestones_unlocked: [],
+        bonus_claimed: false,
       })
       .eq('id', level.id)
       .select('*')

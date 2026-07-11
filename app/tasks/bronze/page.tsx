@@ -10,6 +10,11 @@ import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
 import AdModal from '@/components/audio/AdModal'
 import AdBanner from '@/components/ads/AdBanner'
 
+// TODO: replace with your real smartlink URL (Adsterra/Monetag/etc.)
+// Keep this the SAME url as the one in LevelCompleteModal.tsx when you
+// update it, so all smartlink placements point at one real link.
+const SMARTLINK_URL = 'https://example.com/your-smartlink-here'
+
 interface CurrentAudio {
   id: string
   title: string
@@ -32,6 +37,7 @@ interface StatusResponse {
 }
 
 const REWARD_COINS = 45
+const BONUS_COINS = 10 // keep in sync with BONUS_COINS in bonus/claim/route.ts
 const AD_MILESTONE_DISPLAY_COINS = REWARD_COINS
 
 export default function BronzeLevelPage() {
@@ -44,18 +50,14 @@ export default function BronzeLevelPage() {
   const [showComplete, setShowComplete] = useState(false)
   const [countdown, setCountdown] = useState('')
 
-  // ── Manual "Next Audio" gate ──────────────────────────────────────
-  // We no longer swap to the next audio automatically the instant a
-  // /complete call succeeds. The next audio (already fetched from the
-  // server) sits here until the user explicitly taps "Next Audio".
   const [pendingNextAudio, setPendingNextAudio] = useState<CurrentAudio | null>(null)
   const [awaitingNext, setAwaitingNext] = useState(false)
+  // Set when the audio that was just completed was a smartlink milestone
+  // (5 or 10). Purely informational — doesn't block anything.
+  const [pendingSmartlinkMilestone, setPendingSmartlinkMilestone] = useState<number | null>(null)
 
   const pendingClaimRef = useRef(false)
   const adSessionStartedRef = useRef(false)
-  // Guards against the same audio's completion being submitted twice
-  // (double onEnded fire, fast refresh, etc.) — the root cause of the
-  // "audio out of order or already completed" toast showing up spuriously.
   const submittingAudioRef = useRef<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
@@ -70,6 +72,7 @@ export default function BronzeLevelPage() {
       setStatus(statusData)
       setPendingNextAudio(null)
       setAwaitingNext(false)
+      setPendingSmartlinkMilestone(null)
 
       if (statusData.ad_required && statusData.milestone) {
         setAdMilestone(statusData.milestone)
@@ -131,11 +134,8 @@ export default function BronzeLevelPage() {
     }
   }
 
-  // sessionToken travels with the audio_id so the server can verify real
-  // playback. This no longer auto-advances the UI — it only fetches what
-  // the next audio *would* be and waits for an explicit "Next Audio" tap.
   const handleAudioFinished = async (audioId: string, sessionToken: string | null) => {
-    if (submittingAudioRef.current === audioId) return // already in flight, ignore duplicate fire
+    if (submittingAudioRef.current === audioId) return
     submittingAudioRef.current = audioId
     try {
       const res = await fetch('/api/tasks/level/complete', {
@@ -151,10 +151,6 @@ export default function BronzeLevelPage() {
           setShowAd(true)
           return
         }
-        // Already-completed/out-of-order errors usually mean the server
-        // already has this audio recorded (e.g. from a request that
-        // succeeded right before a refresh) — resync instead of just
-        // complaining, so the user isn't stuck looking at a stale screen.
         toast.error(data.error || 'Could not save progress', {
           action: { label: 'Retry', onClick: () => fetchStatus() },
         })
@@ -170,19 +166,18 @@ export default function BronzeLevelPage() {
       )
 
       if (data.show_ad) {
+        // Only fires at the 15th/final audio now — full mandatory ad.
         setAdMilestone(data.milestone)
         setShowAd(true)
       } else if (data.level_complete) {
         await fetchStatus()
       } else if (data.next_audio) {
-        // Update the completed count immediately, but hold the next audio
-        // back until the user taps "Next Audio".
         setStatus(prev => prev ? { ...prev, completed_audios: finished } : prev)
         setPendingNextAudio(data.next_audio)
+        // 5 or 10 → smartlink opens when the user taps "Next Audio" below.
+        setPendingSmartlinkMilestone(data.smartlink_milestone || null)
         setAwaitingNext(true)
       } else {
-        // Success, but server didn't hand back a next audio — tell the
-        // user why instead of leaving them on a dead screen.
         toast.error('Could not load the next audio. Please refresh.', {
           action: { label: 'Refresh', onClick: () => fetchStatus() },
         })
@@ -197,6 +192,12 @@ export default function BronzeLevelPage() {
   }
 
   const handleNextAudio = () => {
+    // Smartlink milestone (5/10): open it in a new tab first — this is the
+    // extra ad revenue placement. It never blocks continuing; the user
+    // moves to the next audio the same click regardless of the new tab.
+    if (pendingSmartlinkMilestone) {
+      window.open(SMARTLINK_URL, '_blank')
+    }
     if (!pendingNextAudio) {
       fetchStatus()
       return
@@ -204,6 +205,7 @@ export default function BronzeLevelPage() {
     setStatus(prev => prev ? { ...prev, current_audio: pendingNextAudio } : prev)
     setPendingNextAudio(null)
     setAwaitingNext(false)
+    setPendingSmartlinkMilestone(null)
   }
 
   useEffect(() => {
@@ -287,7 +289,6 @@ export default function BronzeLevelPage() {
           />
         )}
 
-        {/* Manual gate — audio does NOT auto-advance. User must tap this. */}
         {!status?.locked && !showAd && awaitingNext && (
           <div className="bg-white rounded-2xl shadow border border-green-100 p-5 text-center">
             <p className="text-sm font-semibold text-green-700 mb-3">
@@ -323,6 +324,7 @@ export default function BronzeLevelPage() {
       {showComplete && (
         <LevelCompleteModal
           rewardCoins={REWARD_COINS}
+          bonusCoins={BONUS_COINS}
           onClose={() => { setShowComplete(false); fetchStatus() }}
         />
       )}

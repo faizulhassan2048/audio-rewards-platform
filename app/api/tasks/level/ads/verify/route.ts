@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+export const revalidate = 0
+
 const LEVEL_NAME = 'bronze'
-// Keep this a few seconds below AdModal's adDurationSeconds (45s) to allow
-// for request latency — but high enough that skipping the wait is pointless.
-const MIN_AD_SECONDS = 42
+// Keep this a few seconds below AdModal's adDurationSeconds (30s, as set in
+// bronze/page.tsx) to allow for request latency — but high enough that
+// skipping the wait is pointless. IMPORTANT: if you change adDurationSeconds
+// in bronze/page.tsx, update this number too, or claiming will always fail.
+const MIN_AD_SECONDS = 28
 
 // POST — called when the user taps "Claim X Coins" inside AdModal, once the
 // on-screen timer hits 0. This is the only place that clears pending_ad_milestone,

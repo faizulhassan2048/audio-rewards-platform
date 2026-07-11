@@ -2,16 +2,13 @@ import { NextResponse } from 'next/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 
-export const dynamic = 'force-dynamic'
-export const fetchCache = 'force-no-store'
-export const revalidate = 0
-
 const LEVEL_NAME = 'bronze'
-const AD_MILESTONES = [5, 10, 15]
-// How much of the real audio duration must have actually elapsed (wall-clock,
-// since the session was created) before we trust that it was really played.
-// 0.6 leaves room for a couple of short pauses/tab-switches without punishing
-// genuine listeners, while still blocking an instant curl/devtools call.
+// Milestones 5 & 10: lightweight, non-blocking — the client opens a
+// smartlink in a new tab (revenue realized on that click/impression) and
+// progress continues immediately. No server-side ad-gate for these anymore.
+const SMARTLINK_MILESTONES = [5, 10]
+// Milestone 15 (the final audio) still gets the full mandatory,
+// unskippable video-ad flow — same as before, untouched.
 const MIN_REAL_TIME_RATIO = 0.6
 
 const supabaseAdmin = createAdminClient(
@@ -27,7 +24,6 @@ export async function POST(req: Request) {
   const { audio_id, session_token } = await req.json()
   if (!audio_id) return NextResponse.json({ error: 'audio_id required' }, { status: 400 })
   if (!session_token) {
-    // No session token = no proof this audio was ever actually opened/played.
     return NextResponse.json({ error: 'session_token required' }, { status: 400 })
   }
 
@@ -44,7 +40,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Level is locked until midnight' }, { status: 403 })
   }
 
-  // A previous ad gate must be cleared before any further progress is accepted.
+  // Only the final (15th) audio's ad gate can block progress now.
   if (level.pending_ad_milestone) {
     return NextResponse.json(
       { error: 'AD_REQUIRED', milestone: level.pending_ad_milestone },
@@ -52,7 +48,6 @@ export async function POST(req: Request) {
     )
   }
 
-  // Server-side order / replay check — unchanged.
   const expectedAudioId = level.audio_ids[level.completed_audios]
   if (expectedAudioId !== audio_id) {
     return NextResponse.json({ error: 'Audio out of order or already completed' }, { status: 409 })
@@ -61,11 +56,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Audio already completed' }, { status: 409 })
   }
 
-  // ── Real-playback verification ──────────────────────────────────
-  // Anyone can call this route directly from devtools with a guessed audio_id.
-  // What they CANNOT fake without effort is a matching audio_sessions row that
-  // (a) belongs to them, (b) is for this exact audio, and (c) shows enough
-  // wall-clock time has passed and enough progress was heartbeated in.
+  // ── Real-playback verification (unchanged) ──────────────────────
   const { data: session, error: sessionErr } = await supabaseAdmin
     .from('audio_sessions')
     .select('*')
@@ -101,11 +92,6 @@ export async function POST(req: Request) {
       { status: 403 }
     )
   }
-  // Bot/script check: a real listener sends a heartbeat roughly every 8s
-  // while playing. Someone who just waits out the clock (or replays an old
-  // session token) without the audio actually running never accumulates
-  // these — so a suspiciously low heartbeat count is rejected even if the
-  // elapsed time and reported progress look fine.
   if (durationSeconds > 16) {
     const expectedMinHeartbeats = Math.max(1, Math.floor(durationSeconds / 8) - 2)
     if (heartbeatCount < expectedMinHeartbeats) {
@@ -119,21 +105,18 @@ export async function POST(req: Request) {
   const newCompletedCount = level.completed_audios + 1
   const newCompletedIds = [...level.completed_audio_ids, audio_id]
   const isLevelComplete = newCompletedCount >= level.total_audios
-  const hitMilestone = AD_MILESTONES.includes(newCompletedCount)
+  // Full mandatory ad only at the very last audio now.
+  const hitFinalAdMilestone = isLevelComplete
+  const hitSmartlinkMilestone = SMARTLINK_MILESTONES.includes(newCompletedCount)
 
   const updatePayload: Record<string, any> = {
     completed_audios: newCompletedCount,
     completed_audio_ids: newCompletedIds,
   }
 
-  if (hitMilestone) {
+  if (hitFinalAdMilestone) {
     updatePayload.pending_ad_milestone = newCompletedCount
-  }
-
-  if (isLevelComplete) {
     updatePayload.completed_at = new Date().toISOString()
-    // No locked_until here — that's set by the claim route to the next
-    // midnight PKT, once the reward is actually credited.
   }
 
   const { error: updateErr } = await supabase
@@ -143,8 +126,10 @@ export async function POST(req: Request) {
 
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
 
+  // Smartlink milestones (5/10) don't block anything — next_audio is
+  // still fetched and returned immediately, same request.
   let nextAudio = null
-  if (!isLevelComplete && !hitMilestone) {
+  if (!isLevelComplete) {
     const nextAudioId = level.audio_ids[newCompletedCount]
     const { data: audio } = await supabase
       .from('audios')
@@ -158,8 +143,9 @@ export async function POST(req: Request) {
     success: true,
     completed_audios: newCompletedCount,
     total_audios: level.total_audios,
-    show_ad: hitMilestone,
-    milestone: hitMilestone ? newCompletedCount : null,
+    show_ad: hitFinalAdMilestone,
+    milestone: hitFinalAdMilestone ? newCompletedCount : null,
+    smartlink_milestone: hitSmartlinkMilestone ? newCompletedCount : null,
     level_complete: isLevelComplete,
     next_audio: nextAudio,
   })

@@ -14,7 +14,7 @@ interface AdModalProps {
 export default function AdModal({
   onFinished,
   rewardCoins,
-  adDurationSeconds = 45,
+  adDurationSeconds = 30, // reduced from 45s — keep in sync with MIN_AD_SECONDS in ads/verify/route.ts
   claiming = false,
   errorMessage = null,
 }: AdModalProps) {
@@ -25,6 +25,8 @@ export default function AdModal({
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
 
+  // Countdown — pauses whenever the tab is hidden, so switching tabs can
+  // never let the timer run out "for free" in the background.
   useEffect(() => {
     timerRef.current = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
@@ -49,6 +51,9 @@ export default function AdModal({
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
+  // Back-button trap — pressing back (or a back-swipe) while the ad is open
+  // cannot skip it. We push an extra history entry and re-push it if the
+  // user tries to pop it.
   useEffect(() => {
     window.history.pushState({ adGuard: true }, '');
     const handlePopState = () => {
@@ -73,8 +78,8 @@ export default function AdModal({
 
   return (
     // z-[999] + always-centered bounded card (no h-full stretch on mobile) —
-    // this is what guarantees the Claim button is always on-screen, never
-    // pinned below the fold behind a site's bottom nav bar or mobile browser chrome.
+    // guarantees the Claim button is always on-screen, never pinned below
+    // the fold behind a site's bottom nav bar or mobile browser chrome.
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-4">
       <div className="w-full max-w-sm bg-white rounded-2xl flex flex-col overflow-hidden max-h-[92dvh]">
 
