@@ -11,9 +11,9 @@ interface AdModalProps {
   errorMessage?: string | null;
 }
 
-// TODO: Replace with your real Monetag Vignette/Interstitial zone ID once
-// you have a Monetag account. Left inactive as a placeholder for now.
-const MONETAG_INTERSTITIAL_ZONE_ID = 'YOUR_MONETAG_ZONE_ID';
+// Real Monetag Vignette/Interstitial zone — verbatim from the dashboard.
+const MONETAG_INTERSTITIAL_ZONE_ID = '11270537';
+const MONETAG_INTERSTITIAL_SCRIPT_SRC = 'https://n6wxm.com/vignette.min.js';
 
 export default function AdModal({
   onFinished,
@@ -79,23 +79,17 @@ export default function AdModal({
     return () => clearTimeout(timer);
   }, []);
 
-  // Injects the real Monetag Vignette/Interstitial script once you fill in
-  // the zone ID above. Inactive placeholder until then — nothing broken
-  // loads in the meantime, the static preview below just keeps showing.
+  // Injects the real Monetag Vignette/Interstitial script — follows
+  // Monetag's own recommended pattern (append to <html> or <body>) rather
+  // than the local ad-preview container, since that's what their snippet
+  // expects (Vignette ads render as their own overlay, not confined to a
+  // parent div).
   useEffect(() => {
-    if (MONETAG_INTERSTITIAL_ZONE_ID === 'YOUR_MONETAG_ZONE_ID') return;
-    const container = adContainerRef.current;
-    if (!container) return;
-
     const script = document.createElement('script');
-    script.async = true;
-    // ⚠️ Replace with the exact <script> src Monetag gives you for this
-    // Vignette/Interstitial zone — copy it verbatim from your Monetag
-    // dashboard, the URL format varies by account/zone type.
-    script.src = `https://YOUR_MONETAG_SCRIPT_DOMAIN/vignette.min.js`;
-    script.setAttribute('data-zone', MONETAG_INTERSTITIAL_ZONE_ID);
-    container.appendChild(script);
-
+    (script as any).dataset.zone = MONETAG_INTERSTITIAL_ZONE_ID;
+    script.src = MONETAG_INTERSTITIAL_SCRIPT_SRC;
+    const target = [document.documentElement, document.body].filter(Boolean).pop();
+    target?.appendChild(script);
     return () => {
       script.remove();
     };

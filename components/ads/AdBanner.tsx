@@ -7,9 +7,9 @@ interface AdBannerProps {
   className?: string;
 }
 
-// TODO: Once you have a Monetag account, replace ZONE_ID below with your
-// real banner/in-page-push zone ID from the Monetag dashboard.
-const MONETAG_BANNER_ZONE_ID = 'YOUR_MONETAG_ZONE_ID';
+// Real Monetag banner zone — verbatim from the Monetag dashboard.
+const MONETAG_BANNER_ZONE_ID = '11270526';
+const MONETAG_BANNER_SCRIPT_SRC = 'https://nap5k.com/tag.min.js';
 
 export default function AdBanner({ position, className = '' }: AdBannerProps) {
   const [adLoaded, setAdLoaded] = useState(false);
@@ -24,23 +24,15 @@ export default function AdBanner({ position, className = '' }: AdBannerProps) {
     return () => clearTimeout(timer);
   }, []);
 
-  // Injects the real Monetag script tag once you fill in the zone ID above.
-  // Left inactive (early-return) while the zone ID is still the placeholder,
-  // so nothing broken loads in the meantime.
+  // Injects the real Monetag banner script — follows Monetag's own
+  // recommended pattern (append to <html> or <body>, whichever exists)
+  // rather than a local container, since that's what their snippet expects.
   useEffect(() => {
-    if (MONETAG_BANNER_ZONE_ID === 'YOUR_MONETAG_ZONE_ID') return;
-    const container = containerRef.current;
-    if (!container) return;
-
     const script = document.createElement('script');
-    script.async = true;
-    // ⚠️ Replace with the exact <script> src Monetag gives you for this
-    // banner zone — the URL format varies by account/zone type, so copy it
-    // verbatim from your Monetag dashboard rather than guessing it here.
-    script.src = `https://YOUR_MONETAG_SCRIPT_DOMAIN/tag.min.js`;
-    script.setAttribute('data-zone', MONETAG_BANNER_ZONE_ID);
-    container.appendChild(script);
-
+    (script as any).dataset.zone = MONETAG_BANNER_ZONE_ID;
+    script.src = MONETAG_BANNER_SCRIPT_SRC;
+    const target = [document.documentElement, document.body].filter(Boolean).pop();
+    target?.appendChild(script);
     return () => {
       script.remove();
     };

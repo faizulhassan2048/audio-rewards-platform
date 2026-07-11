@@ -10,11 +10,8 @@ import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
 import AdModal from '@/components/audio/AdModal'
 import AdBanner from '@/components/ads/AdBanner'
 
-// TODO: replace with your real Monetag Direct Link URL once you have it.
-// Monetag's "Direct Link" ad type is exactly this — a URL you open in a
-// new tab; revenue is generated on that click/visit. Keep this the SAME
-// url as the one in LevelCompleteModal.tsx once you fill it in.
-const MONETAG_DIRECT_LINK_URL = 'https://YOUR_MONETAG_DIRECT_LINK_HERE'
+// Real Monetag Direct Link — opens in a new tab at milestones 5/10.
+const MONETAG_DIRECT_LINK_URL = 'https://omg10.com/4/11270543'
 
 interface CurrentAudio {
   id: string

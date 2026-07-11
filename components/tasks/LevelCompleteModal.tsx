@@ -3,9 +3,8 @@
 import { useState } from 'react'
 import { PartyPopper, Coins, Gift, Loader2 } from 'lucide-react'
 
-// TODO: replace with your real Monetag Direct Link URL — keep this the
-// SAME url as MONETAG_DIRECT_LINK_URL in app/tasks/bronze/page.tsx.
-const MONETAG_DIRECT_LINK_URL = 'https://YOUR_MONETAG_DIRECT_LINK_HERE'
+// Real Monetag Direct Link — opens when the optional bonus is claimed.
+const MONETAG_DIRECT_LINK_URL = 'https://omg10.com/4/11270543'
 
 interface LevelCompleteModalProps {
   rewardCoins: number
