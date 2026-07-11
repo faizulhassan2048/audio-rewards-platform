@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+export const revalidate = 0
+
 const LEVEL_NAME = 'bronze'
 const AD_MILESTONES = [5, 10, 15]
 // How much of the real audio duration must have actually elapsed (wall-clock,
@@ -37,7 +41,7 @@ export async function POST(req: Request) {
   if (error || !level) return NextResponse.json({ error: 'Level not found' }, { status: 404 })
 
   if (level.locked_until && new Date(level.locked_until) > new Date()) {
-    return NextResponse.json({ error: 'Level is locked' }, { status: 403 })
+    return NextResponse.json({ error: 'Level is locked until midnight' }, { status: 403 })
   }
 
   // A previous ad gate must be cleared before any further progress is accepted.
@@ -128,7 +132,8 @@ export async function POST(req: Request) {
 
   if (isLevelComplete) {
     updatePayload.completed_at = new Date().toISOString()
-    updatePayload.locked_until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    // No locked_until here — that's set by the claim route to the next
+    // midnight PKT, once the reward is actually credited.
   }
 
   const { error: updateErr } = await supabase

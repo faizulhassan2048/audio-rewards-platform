@@ -35,7 +35,8 @@ export async function GET() {
     level = created
   }
 
-  // In cooldown
+  // ── Fixed daily reset (midnight PKT) ─────────────────────────────
+  // Still locked — show the countdown to the next midnight.
   if (level.locked_until && new Date(level.locked_until) > now) {
     return NextResponse.json({
       locked: true,
@@ -47,7 +48,7 @@ export async function GET() {
     })
   }
 
-  // Cooldown expired — reset (also clears any leftover ad-gate state)
+  // Midnight has passed — reset for the new day and pick a fresh audio pool.
   if (level.locked_until && new Date(level.locked_until) <= now) {
     const audioIds = await pickAudioPool(supabase)
     const { data: reset, error } = await supabase
@@ -72,10 +73,9 @@ export async function GET() {
   }
 
   // ── AD GATE ──────────────────────────────────────────────────────
-  // This is the actual fix for "refresh to skip the ad": as long as
-  // pending_ad_milestone is set in the DB, we never return a current_audio,
-  // no matter how many times the page is refreshed or the tab is reopened.
-  // The client is forced back into the ad flow.
+  // As long as pending_ad_milestone is set in the DB, we never return a
+  // current_audio, no matter how many times the page is refreshed or the
+  // tab is reopened. The client is forced back into the ad flow.
   if (level.pending_ad_milestone) {
     return NextResponse.json({
       locked: false,
@@ -88,7 +88,8 @@ export async function GET() {
     })
   }
 
-  // Level complete — waiting for claim
+  // Level complete — waiting for claim (claim route sets locked_until to
+  // next midnight PKT right after crediting the reward).
   if (level.completed_audios >= level.total_audios) {
     return NextResponse.json({
       locked: false,

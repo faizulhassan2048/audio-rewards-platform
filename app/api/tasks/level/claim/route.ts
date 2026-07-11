@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getNextMidnightPKT } from '@/lib/levelRotation'
 
 const LEVEL_NAME = 'bronze'
 const REWARD_COINS = 45
@@ -20,8 +21,8 @@ export async function POST() {
   if (level.completed_audios < level.total_audios) {
     return NextResponse.json({ error: 'Level not yet complete' }, { status: 400 })
   }
-  // NEW: the wallet can only ever be credited once the 15th-audio ad has
-  // actually been server-verified — not just because completed_audios hit 15.
+  // Wallet can only be credited once the 15th-audio ad has actually been
+  // server-verified — not just because completed_audios hit 15.
   if (!level.ad_milestones_unlocked?.includes(level.total_audios)) {
     return NextResponse.json({ error: 'Final ad not completed yet' }, { status: 403 })
   }
@@ -52,7 +53,6 @@ export async function POST() {
 
   if (claimErr) return NextResponse.json({ error: claimErr.message }, { status: 500 })
   if (!claimedRow) {
-    // Someone else's request (or a fast retry) already claimed it.
     return NextResponse.json({ success: true, already_claimed: true })
   }
 
@@ -94,12 +94,21 @@ export async function POST() {
     // non-fatal
   }
 
-  const lockedUntil = level.locked_until || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  // ── Fixed daily reset (midnight PKT) ─────────────────────────────
+  // Not a rolling 24h-from-now lock. Whatever time the user finishes at,
+  // they're locked only until the *next* upcoming 12:00 AM Pakistan time —
+  // so everyone resets together at midnight, not on their own personal timer.
+  const lockedUntil = getNextMidnightPKT()
 
   await supabase
     .from('user_levels')
-    .update({ locked_until: lockedUntil })
+    .update({ locked_until: lockedUntil.toISOString() })
     .eq('id', level.id)
 
-  return NextResponse.json({ success: true, coins_awarded: REWARD_COINS, new_balance: balanceAfter })
+  return NextResponse.json({
+    success: true,
+    coins_awarded: REWARD_COINS,
+    new_balance: balanceAfter,
+    locked_until: lockedUntil.toISOString(),
+  })
 }
