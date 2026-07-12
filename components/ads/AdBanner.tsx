@@ -7,54 +7,68 @@ interface AdBannerProps {
   className?: string;
 }
 
-// IMPORTANT: Monetag script is loaded globally in layout.tsx
-// This component only provides the visual placeholder slots
+// Monetag In-Page Push Zone (already loaded in layout.tsx)
+// This component now shows the actual ad container
+
 export default function AdBanner({ position, className = '' }: AdBannerProps) {
-  const [adLoaded, setAdLoaded] = useState(false);
+  const [adReady, setAdReady] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Simulate ad loading - replace with actual ad logic
-    const timer = setTimeout(() => {
-      setAdLoaded(true);
-    }, 1500);
+    // Wait for Monetag script to load and render
+    const checkAd = () => {
+      // Check if Monetag has rendered anything
+      const monetagElements = document.querySelectorAll(
+        `[data-zone="11270526"], .monetag, [class*="monetag"]`
+      );
+      
+      if (monetagElements.length > 0) {
+        setAdReady(true);
+        console.log('✅ Monetag ad detected');
+      } else {
+        // Retry after delay
+        setTimeout(checkAd, 1000);
+      }
+    };
 
-    return () => clearTimeout(timer);
+    // Start checking after 2 seconds
+    const timer = setTimeout(checkAd, 2000);
+
+    return () => {
+      clearTimeout(timer);
+    };
   }, []);
-
-  // Different styling for top vs bottom
-  const positionStyles = position === 'top' 
-    ? 'bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200'
-    : 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200';
 
   return (
     <div
       ref={containerRef}
       className={`
-        w-full rounded-xl p-2.5 flex items-center justify-center 
-        border min-h-[60px] shadow-sm
-        ${positionStyles} ${className}
+        w-full rounded-xl overflow-hidden
+        bg-white/50 min-h-[60px] flex items-center justify-center
+        border border-gray-100/50
+        ${className}
       `}
     >
-      {!adLoaded ? (
-        <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-400 border-t-transparent" />
-          <span className="text-[10px] text-gray-400">Loading ad...</span>
-        </div>
-      ) : (
-        <div className="text-[10px] text-gray-500 flex items-center gap-3 w-full justify-center">
-          <span className="text-base">📢</span>
-          <span className="font-medium">
-            {position === 'top' ? '📱 Top Banner' : '📱 Bottom Banner'}
-          </span>
-          <span className="px-2 py-0.5 bg-gray-100 rounded text-[8px] text-gray-500 font-mono">
-            320x50
-          </span>
-          <span className="text-[8px] text-gray-400">
-            {position === 'top' ? '▲' : '▼'}
-          </span>
-        </div>
-      )}
+      {/* ✅ Monetag In-Page Push renders here */}
+      <div 
+        id={`monetag-banner-${position}`}
+        className="w-full h-full flex items-center justify-center"
+      >
+        {!adReady ? (
+          // Loading state - subtle and clean
+          <div className="flex items-center gap-2 text-gray-400">
+            <div className="animate-pulse flex gap-1">
+              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animation-delay-200" />
+              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animation-delay-400" />
+            </div>
+            <span className="text-[10px]">Loading ad...</span>
+          </div>
+        ) : (
+          // ✅ Ad will render here automatically via Monetag
+          <div className="w-full h-full" />
+        )}
+      </div>
     </div>
   );
 }
