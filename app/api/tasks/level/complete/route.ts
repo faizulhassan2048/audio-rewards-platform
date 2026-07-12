@@ -3,12 +3,12 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 
 const LEVEL_NAME = 'bronze'
-// Milestones 5 & 10: lightweight, non-blocking — the client opens a
-// smartlink in a new tab (revenue realized on that click/impression) and
-// progress continues immediately. No server-side ad-gate for these anymore.
-const SMARTLINK_MILESTONES = [5, 10]
-// Milestone 15 (the final audio) still gets the full mandatory,
-// unskippable video-ad flow — same as before, untouched.
+
+// ✅ ALL milestones (5, 10, 15) get Full Ad
+const FULL_AD_MILESTONES = [5, 10, 15]
+// ✅ No smartlink milestones anymore
+const SMARTLINK_MILESTONES: number[] = []
+
 const MIN_REAL_TIME_RATIO = 0.6
 
 const supabaseAdmin = createAdminClient(
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Level is locked until midnight' }, { status: 403 })
   }
 
-  // Only the final (15th) audio's ad gate can block progress now.
+  // Check if already pending ad
   if (level.pending_ad_milestone) {
     return NextResponse.json(
       { error: 'AD_REQUIRED', milestone: level.pending_ad_milestone },
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Audio already completed' }, { status: 409 })
   }
 
-  // ── Real-playback verification (unchanged) ──────────────────────
+  // ── Real-playback verification ──────────────────────
   const { data: session, error: sessionErr } = await supabaseAdmin
     .from('audio_sessions')
     .select('*')
@@ -105,18 +105,21 @@ export async function POST(req: Request) {
   const newCompletedCount = level.completed_audios + 1
   const newCompletedIds = [...level.completed_audio_ids, audio_id]
   const isLevelComplete = newCompletedCount >= level.total_audios
-  // Full mandatory ad only at the very last audio now.
-  const hitFinalAdMilestone = isLevelComplete
-  const hitSmartlinkMilestone = SMARTLINK_MILESTONES.includes(newCompletedCount)
+
+  // ✅ Check if this is a Full Ad milestone (5, 10, 15)
+  const hitFullAdMilestone = FULL_AD_MILESTONES.includes(newCompletedCount)
 
   const updatePayload: Record<string, any> = {
     completed_audios: newCompletedCount,
     completed_audio_ids: newCompletedIds,
   }
 
-  if (hitFinalAdMilestone) {
+  // ✅ Set pending_ad_milestone for ALL milestones (5, 10, 15)
+  if (hitFullAdMilestone) {
     updatePayload.pending_ad_milestone = newCompletedCount
-    updatePayload.completed_at = new Date().toISOString()
+    if (isLevelComplete) {
+      updatePayload.completed_at = new Date().toISOString()
+    }
   }
 
   const { error: updateErr } = await supabase
@@ -126,8 +129,7 @@ export async function POST(req: Request) {
 
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
 
-  // Smartlink milestones (5/10) don't block anything — next_audio is
-  // still fetched and returned immediately, same request.
+  // Get next audio (if not level complete)
   let nextAudio = null
   if (!isLevelComplete) {
     const nextAudioId = level.audio_ids[newCompletedCount]
@@ -139,13 +141,13 @@ export async function POST(req: Request) {
     nextAudio = audio
   }
 
+  // ✅ Response - No smartlink_milestone anymore
   return NextResponse.json({
     success: true,
     completed_audios: newCompletedCount,
     total_audios: level.total_audios,
-    show_ad: hitFinalAdMilestone,
-    milestone: hitFinalAdMilestone ? newCompletedCount : null,
-    smartlink_milestone: hitSmartlinkMilestone ? newCompletedCount : null,
+    show_ad: hitFullAdMilestone,
+    milestone: hitFullAdMilestone ? newCompletedCount : null,
     level_complete: isLevelComplete,
     next_audio: nextAudio,
   })

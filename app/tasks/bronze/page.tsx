@@ -9,7 +9,6 @@ import LevelProgress from '@/components/tasks/LevelProgress';
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal';
 import AdModal from '@/components/audio/AdModal';
 import AdBanner from '@/components/ads/AdBanner';
-import SmartlinkOverlay from '@/components/tasks/SmartlinkOverlay';
 
 interface StatusResponse {
   locked: boolean;
@@ -44,8 +43,6 @@ export default function BronzeLevelPage() {
   const [adError, setAdError] = useState<string | null>(null);
   const [showComplete, setShowComplete] = useState(false);
   const [countdown, setCountdown] = useState('');
-  const [showSmartlink, setShowSmartlink] = useState(false);
-  const [smartlinkMilestone, setSmartlinkMilestone] = useState<number | null>(null);
 
   const pendingClaimRef = useRef(false);
 
@@ -60,7 +57,7 @@ export default function BronzeLevelPage() {
       const statusData: StatusResponse = await res.json();
       setStatus(statusData);
 
-      // Check if ad required
+      // ✅ Check if ad required (5, 10, 15 all full ad)
       if (statusData.ad_required && statusData.milestone) {
         setAdMilestone(statusData.milestone);
         setShowAd(true);
@@ -87,20 +84,20 @@ export default function BronzeLevelPage() {
     fetchStatus();
   }, [fetchStatus]);
 
-  // Check for smartlink or ad from URL params
+  // ✅ Check for ad from URL params (for 5, 10, 15)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const smartlink = params.get('smartlink');
     const ad = params.get('ad');
-    
-    if (smartlink) {
-      setSmartlinkMilestone(parseInt(smartlink));
-      setShowSmartlink(true);
-    }
+    const complete = params.get('complete');
     
     if (ad) {
       setAdMilestone(parseInt(ad));
       setShowAd(true);
+    }
+    
+    if (complete === 'true') {
+      // Level complete - fetch status to trigger claim
+      fetchStatus();
     }
   }, []);
 
@@ -152,7 +149,7 @@ export default function BronzeLevelPage() {
       if (data.isFinalMilestone) {
         await claimReward();
       } else {
-        toast.success('Coins locked in!');
+        toast.success('Ad complete! Continue to next audio.');
       }
       await fetchStatus();
     } catch {
@@ -160,12 +157,6 @@ export default function BronzeLevelPage() {
     } finally {
       setAdClaiming(false);
     }
-  };
-
-  const handleSmartlinkComplete = () => {
-    setShowSmartlink(false);
-    setSmartlinkMilestone(null);
-    fetchStatus();
   };
 
   if (loading) {
@@ -256,27 +247,17 @@ export default function BronzeLevelPage() {
         </div>
       </div>
 
-      {/* Smartlink Overlay */}
-      {showSmartlink && (
-        <SmartlinkOverlay
-          onComplete={handleSmartlinkComplete}
-          onClose={() => setShowSmartlink(false)}
-          durationSeconds={15}
-          message={`🎯 ${smartlinkMilestone === 5 ? 'Great progress! Unlock audio 6' : 'Halfway there! Unlock audio 11'}`}
-        />
-      )}
-
-      {/* Full Ad Modal */}
+      {/* ✅ Full Ad Modal (for 5, 10, 15) */}
       {showAd && (
         <AdModal
           onFinished={handleAdClaim}
-          rewardCoins={REWARD_COINS}
+          rewardCoins={adMilestone === 15 ? REWARD_COINS : 0}
           claiming={adClaiming}
           errorMessage={adError}
         />
       )}
 
-      {/* Level Complete Modal */}
+      {/* ✅ Level Complete Modal (with Bonus) */}
       {showComplete && (
         <LevelCompleteModal
           rewardCoins={REWARD_COINS}
