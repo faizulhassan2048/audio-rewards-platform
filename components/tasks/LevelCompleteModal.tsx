@@ -20,7 +20,7 @@ export default function LevelCompleteModal({ rewardCoins, bonusCoins, onClose }:
     // Opens the Monetag Direct Link — this is where the extra ad revenue
     // comes from. Whether the user actually engages with it or not, we
     // still credit the bonus on click (it's an opt-in bonus, not a gate).
-    window.open(MONETAG_DIRECT_LINK_URL, '_blank')
+    window.open(MONETAG_DIRECT_LINK_URL, '_blank', 'noopener')
     setBonusState('claiming')
     setBonusError(null)
     try {

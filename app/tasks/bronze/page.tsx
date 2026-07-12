@@ -195,7 +195,7 @@ export default function BronzeLevelPage() {
     // continuing; the user moves to the next audio the same click
     // regardless of the new tab.
     if (pendingSmartlinkMilestone) {
-      window.open(MONETAG_DIRECT_LINK_URL, '_blank')
+      window.open(MONETAG_DIRECT_LINK_URL, '_blank', 'noopener')
     }
     if (!pendingNextAudio) {
       fetchStatus()
