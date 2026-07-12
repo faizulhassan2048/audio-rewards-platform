@@ -11,14 +11,14 @@ interface AdModalProps {
   errorMessage?: string | null;
 }
 
-// Real Monetag Vignette/Interstitial zone — verbatim from the dashboard.
+// ✅ REAL Monetag Vignette/Interstitial zone - Using your exact snippet
 const MONETAG_INTERSTITIAL_ZONE_ID = '11270537';
 const MONETAG_INTERSTITIAL_SCRIPT_SRC = 'https://n6wxm.com/vignette.min.js';
 
 export default function AdModal({
   onFinished,
   rewardCoins,
-  adDurationSeconds = 30, // keep in sync with MIN_AD_SECONDS in ads/verify/route.ts
+  adDurationSeconds = 30,
   claiming = false,
   errorMessage = null,
 }: AdModalProps) {
@@ -28,10 +28,9 @@ export default function AdModal({
   const [backWarning, setBackWarning] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
-  const adContainerRef = useRef<HTMLDivElement>(null);
+  const scriptInjected = useRef(false);
 
-  // Countdown — pauses whenever the tab is hidden, so switching tabs can
-  // never let the timer run out "for free" in the background.
+  // Countdown — pauses when tab is hidden
   useEffect(() => {
     timerRef.current = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
@@ -48,6 +47,7 @@ export default function AdModal({
     };
   }, []);
 
+  // Tab visibility warning
   useEffect(() => {
     const handleVisibility = () => {
       setTabWarning(document.visibilityState !== 'visible');
@@ -56,9 +56,7 @@ export default function AdModal({
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
-  // Back-button trap — pressing back (or a back-swipe) while the ad is open
-  // cannot skip it. We push an extra history entry and re-push it if the
-  // user tries to pop it.
+  // Back-button trap
   useEffect(() => {
     window.history.pushState({ adGuard: true }, '');
     const handlePopState = () => {
@@ -74,75 +72,109 @@ export default function AdModal({
     };
   }, []);
 
+  // ✅ FIX: Inject Monetag script EXACTLY as provided
   useEffect(() => {
-    const timer = setTimeout(() => setAdLoaded(true), 2000);
-    return () => clearTimeout(timer);
-  }, []);
+    if (scriptInjected.current) return;
+    scriptInjected.current = true;
 
-  // Injects the real Monetag Vignette/Interstitial script — follows
-  // Monetag's own recommended pattern (append to <html> or <body>) rather
-  // than the local ad-preview container, since that's what their snippet
-  // expects (Vignette ads render as their own overlay, not confined to a
-  // parent div).
-  useEffect(() => {
+    console.log('🎬 Injecting Monetag Interstitial script (Zone: 11270537)...');
+
+    // Remove any existing Monetag interstitial scripts to avoid duplicates
+    const existingScripts = document.querySelectorAll(
+      `script[data-zone="${MONETAG_INTERSTITIAL_ZONE_ID}"]`
+    );
+    existingScripts.forEach((s) => s.remove());
+
+    // ✅ EXACT Monetag snippet pattern
     const script = document.createElement('script');
-    (script as any).dataset.zone = MONETAG_INTERSTITIAL_ZONE_ID;
+    script.dataset.zone = MONETAG_INTERSTITIAL_ZONE_ID;
     script.src = MONETAG_INTERSTITIAL_SCRIPT_SRC;
-    const target = [document.documentElement, document.body].filter(Boolean).pop();
-    target?.appendChild(script);
+    script.async = true;
+    
+    script.onload = () => {
+      console.log('✅ Monetag Interstitial script loaded successfully!');
+      setAdLoaded(true);
+    };
+    
+    script.onerror = () => {
+      console.error('❌ Failed to load Monetag script');
+      // Still allow continue after timer
+      setAdLoaded(true);
+    };
+
+    // Append to body (Monetag recommends this)
+    const target = document.body || document.documentElement;
+    if (target) {
+      target.appendChild(script);
+      console.log('📦 Script appended to:', target.tagName);
+    }
+
+    // Fallback: If script doesn't load within 5 seconds, force ready
+    const timeout = setTimeout(() => {
+      if (!adLoaded) {
+        console.log('⏰ Script load timeout, forcing ad ready...');
+        setAdLoaded(true);
+      }
+    }, 5000);
+
     return () => {
       script.remove();
+      clearTimeout(timeout);
     };
-  }, []);
+  }, [adLoaded]);
 
   const canContinue = secondsLeft <= 0 && adLoaded;
 
   return (
-    // z-[999] + always-centered bounded card (no h-full stretch on mobile) —
-    // guarantees the Claim button is always on-screen, never pinned below
-    // the fold behind a site's bottom nav bar or mobile browser chrome.
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-4">
       <div className="w-full max-w-sm bg-white rounded-2xl flex flex-col overflow-hidden max-h-[92dvh]">
 
-        <div
-          ref={adContainerRef}
-          className="aspect-video bg-gradient-to-br from-purple-600 to-indigo-700 flex flex-col items-center justify-center text-white p-4 text-center relative shrink-0"
-        >
-          <div id="monetag-interstitial" className="w-full h-full flex items-center justify-center">
-            {!adLoaded ? (
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-9 w-9 border-2 border-white/30 border-t-white mx-auto mb-2" />
-                <p className="text-xs opacity-80">Loading ad...</p>
-              </div>
-            ) : (
-              <div className="text-center">
-                <p className="text-3xl mb-2">📺</p>
-                <p className="text-sm font-medium">Monetag Interstitial Ad</p>
-                <p className="text-xs opacity-70 mt-1">Replace with your Monetag zone code</p>
-                <div className="mt-2 p-2 bg-white/10 rounded-lg text-xs">
-                  <code className="opacity-60">Monetag Vignette/Interstitial Zone Here</code>
-                </div>
-              </div>
-            )}
+        {/* Ad Container - Show real Monetag ad */}
+        <div className="aspect-video bg-black flex items-center justify-center relative shrink-0 overflow-hidden">
+          
+          {!adLoaded ? (
+            // Loading state
+            <div className="text-center text-white">
+              <div className="animate-spin rounded-full h-10 w-10 border-2 border-white/30 border-t-white mx-auto mb-3" />
+              <p className="text-sm font-medium">Loading ad...</p>
+              <p className="text-xs text-white/50 mt-1">Please wait</p>
+            </div>
+          ) : (
+            // ✅ REAL Monetag Ad Container
+            <div 
+              id="monetag-interstitial-container" 
+              className="w-full h-full bg-black"
+            >
+              {/* Monetag will render its vignette/interstitial ad here */}
+              <div id="monetag-vignette" className="w-full h-full" />
+            </div>
+          )}
+
+          {/* Timer Badge */}
+          <div className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-sm font-mono">
+            {canContinue ? '✓ Done' : `${secondsLeft}s`}
           </div>
 
-          <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2.5 py-1 rounded-full">
-            {canContinue ? 'Done' : `${secondsLeft}s`}
-          </div>
-
+          {/* Tab Warning */}
           {tabWarning && (
             <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-4 text-center">
-              <p className="text-xs font-semibold">Come back to this tab — the ad timer is paused until you do.</p>
+              <div className="text-white">
+                <p className="text-sm font-semibold">⚠️ Come back to this tab!</p>
+                <p className="text-xs text-white/70 mt-1">The ad timer is paused until you return.</p>
+              </div>
             </div>
           )}
         </div>
 
+        {/* Bottom Section */}
         <div className="p-4 border-t border-gray-100 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          
           {backWarning && (
             <p className="text-xs text-red-600 mb-2 text-center font-semibold">
-              You must finish watching this ad to continue.
+              ⚠️ You must finish watching this ad to continue.
             </p>
           )}
+          
           {errorMessage ? (
             <p className="text-sm text-red-600 mb-3 text-center font-medium">
               {errorMessage}
@@ -150,24 +182,32 @@ export default function AdModal({
           ) : (
             <p className="text-sm text-gray-600 mb-3 text-center">
               {canContinue
-                ? `Watch complete — claim your ${rewardCoins} coins!`
-                : `Reward available in ${secondsLeft}s…`}
+                ? `✅ Ad complete — claim your ${rewardCoins} coins!`
+                : `⏳ Please wait ${secondsLeft}s for ad to finish...`}
             </p>
           )}
+          
           <button
             onClick={onFinished}
             disabled={!canContinue || claiming}
-            className="w-full py-3 rounded-xl bg-purple-600 text-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-xl bg-purple-600 text-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
           >
             {claiming && <Loader2 size={18} className="animate-spin" />}
             {claiming
-              ? 'Verifying…'
+              ? 'Verifying...'
               : errorMessage
-              ? 'Retry Claim'
+              ? '🔄 Retry Claim'
               : canContinue
-              ? `Claim ${rewardCoins} Coins`
-              : `Please wait (${secondsLeft}s)`}
+              ? `💰 Claim ${rewardCoins} Coins`
+              : `⏳ Please wait (${secondsLeft}s)`}
           </button>
+          
+          {/* Small note */}
+          {!canContinue && !errorMessage && (
+            <p className="text-[10px] text-gray-400 text-center mt-2">
+              Ad is loading in the background • Do not close this window
+            </p>
+          )}
         </div>
       </div>
     </div>
