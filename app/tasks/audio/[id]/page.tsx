@@ -31,11 +31,12 @@ export default function AudioPlayerPage() {
   const [audioComplete, setAudioComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [audioLoaded, setAudioLoaded] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch audio data and create session
+  // Fetch audio data and create session - PARALLEL
   useEffect(() => {
     const fetchAudio = async () => {
       try {
@@ -43,13 +44,17 @@ export default function AudioPlayerPage() {
         const index = parseInt(params.get('index') || '1');
         const total = parseInt(params.get('total') || '15');
 
-        // 1. Create audio session first
-        const sessionRes = await fetch('/api/audio/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ audioId }),
-        });
-        
+        // ✅ Parallel fetch - faster loading
+        const [sessionRes, audioRes] = await Promise.all([
+          fetch('/api/audio/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audioId }),
+          }),
+          fetch(`/api/tasks/audio/${audioId}`),
+        ]);
+
+        // Session token
         let token = null;
         let audioUrl = null;
         
@@ -60,42 +65,24 @@ export default function AudioPlayerPage() {
           setSessionToken(token);
         }
 
-        // 2. Fetch audio details (if session didn't return URL)
-        if (!audioUrl) {
-          const res = await fetch(`/api/tasks/audio/${audioId}`);
-          if (!res.ok) {
-            toast.error('Audio not found');
-            router.push('/tasks/bronze');
-            return;
-          }
-          const data = await res.json();
-          audioUrl = data.audio_url;
+        // Audio data
+        if (audioRes.ok) {
+          const data = await audioRes.json();
           setAudio({
             ...data,
             index: index,
             total: total
           });
-        } else {
-          // Use data from session
-          const res = await fetch(`/api/tasks/audio/${audioId}`);
-          if (res.ok) {
-            const data = await res.json();
-            setAudio({
-              ...data,
-              index: index,
-              total: total
-            });
-          } else {
-            // Fallback: just use what we have
-            setAudio({
-              id: audioId,
-              title: `Audio ${index}`,
-              audio_url: audioUrl,
-              duration_seconds: 0,
-              index: index,
-              total: total
-            });
-          }
+        } else if (audioUrl) {
+          // Fallback
+          setAudio({
+            id: audioId,
+            title: `Audio ${index}`,
+            audio_url: audioUrl,
+            duration_seconds: 0,
+            index: index,
+            total: total
+          });
         }
       } catch (error) {
         console.error('Error fetching audio:', error);
@@ -107,6 +94,15 @@ export default function AudioPlayerPage() {
 
     fetchAudio();
   }, [audioId, router]);
+
+  // Preload audio when URL changes
+  useEffect(() => {
+    if (audio && audioRef.current) {
+      // ✅ Preload audio
+      audioRef.current.load();
+      setAudioLoaded(true);
+    }
+  }, [audio]);
 
   // Send heartbeat
   const sendHeartbeat = async () => {
@@ -163,7 +159,7 @@ export default function AudioPlayerPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           audio_id: audioId,
-          session_token: sessionToken  // ✅ Now sending actual token!
+          session_token: sessionToken
         }),
       });
       
@@ -204,6 +200,7 @@ export default function AudioPlayerPage() {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
         setTimeout(() => {
+          // ✅ Force page reload for fresh ads
           router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
         }, 1000);
       } else {
@@ -220,14 +217,21 @@ export default function AudioPlayerPage() {
   };
 
   // Toggle play/pause
-  const togglePlay = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play().catch(() => {});
-      }
-      setIsPlaying(!isPlaying);
+  const togglePlay = async () => {
+    if (!audioRef.current || audioComplete) return;
+
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+      return;
+    }
+
+    try {
+      await audioRef.current.play();
+      setIsPlaying(true);
+    } catch (error) {
+      console.error('Play error:', error);
+      toast.error('Could not play audio');
     }
   };
 
@@ -264,9 +268,9 @@ export default function AudioPlayerPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP AD */}
+        {/* ✅ TOP AD - Key se force refresh */}
         <div className="mb-3">
-          <AdBanner position="top" />
+          <AdBanner key={`top-${audioId}`} position="top" />
         </div>
 
         {/* Back Button */}
@@ -350,10 +354,11 @@ export default function AudioPlayerPage() {
             <span>{formatTime(duration)}</span>
           </div>
 
-          {/* Audio Player (Hidden) */}
+          {/* ✅ Audio Player - with preload */}
           <audio
             ref={audioRef}
             src={audio.audio_url}
+            preload="auto"
             className="hidden"
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
@@ -368,6 +373,7 @@ export default function AudioPlayerPage() {
               setDuration(target.duration);
             }}
             onEnded={handleAudioComplete}
+            onCanPlay={() => setAudioLoaded(true)}
           />
 
           {/* Instructions */}
@@ -397,7 +403,7 @@ export default function AudioPlayerPage() {
           )}
 
           {/* Play Button (if not started) */}
-          {!isPlaying && !audioComplete && (
+          {!isPlaying && !audioComplete && audioLoaded && (
             <button
               onClick={togglePlay}
               className="mt-4 w-full py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
@@ -406,12 +412,20 @@ export default function AudioPlayerPage() {
               Play Audio
             </button>
           )}
+
+          {/* Loading state for audio */}
+          {!audioLoaded && !audioComplete && (
+            <div className="mt-4 w-full py-3 bg-gray-200 text-gray-500 rounded-xl font-semibold flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading audio...
+            </div>
+          )}
         </div>
 
-        {/* ✅ BOTTOM AD - Fixed at bottom */}
+        {/* ✅ BOTTOM AD - Key se force refresh */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
-            <AdBanner position="bottom" />
+            <AdBanner key={`bottom-${audioId}`} position="bottom" />
           </div>
         </div>
       </div>

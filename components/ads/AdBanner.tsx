@@ -7,16 +7,16 @@ interface AdBannerProps {
   className?: string;
 }
 
-// Monetag In-Page Push Zone (already loaded in layout.tsx)
-// This component now shows the actual ad container
-
 export default function AdBanner({ position, className = '' }: AdBannerProps) {
   const [adReady, setAdReady] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(false);
 
   useEffect(() => {
-    // Wait for Monetag script to load and render
-    const checkAd = () => {
+    mountedRef.current = true;
+
+    // ✅ Force re-initialize on mount
+    const initAd = () => {
       // Check if Monetag has rendered anything
       const monetagElements = document.querySelectorAll(
         `[data-zone="11270526"], .monetag, [class*="monetag"]`
@@ -24,20 +24,33 @@ export default function AdBanner({ position, className = '' }: AdBannerProps) {
       
       if (monetagElements.length > 0) {
         setAdReady(true);
-        console.log('✅ Monetag ad detected');
+        console.log(`✅ Monetag ad detected (${position})`);
       } else {
         // Retry after delay
-        setTimeout(checkAd, 1000);
+        setTimeout(() => {
+          if (mountedRef.current) {
+            const retryElements = document.querySelectorAll(
+              `[data-zone="11270526"], .monetag, [class*="monetag"]`
+            );
+            if (retryElements.length > 0) {
+              setAdReady(true);
+              console.log(`✅ Monetag ad detected (${position}) after retry`);
+            } else {
+              // Force ready after 5 seconds
+              setAdReady(true);
+            }
+          }
+        }, 3000);
       }
     };
 
-    // Start checking after 2 seconds
-    const timer = setTimeout(checkAd, 2000);
+    const timer = setTimeout(initAd, 1500);
 
     return () => {
+      mountedRef.current = false;
       clearTimeout(timer);
     };
-  }, []);
+  }, [position]);
 
   return (
     <div
@@ -49,23 +62,20 @@ export default function AdBanner({ position, className = '' }: AdBannerProps) {
         ${className}
       `}
     >
-      {/* ✅ Monetag In-Page Push renders here */}
       <div 
         id={`monetag-banner-${position}`}
         className="w-full h-full flex items-center justify-center"
       >
         {!adReady ? (
-          // Loading state - subtle and clean
           <div className="flex items-center gap-2 text-gray-400">
             <div className="animate-pulse flex gap-1">
-              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
-              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animation-delay-200" />
-              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animation-delay-400" />
+              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-pulse-dot" />
+              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-pulse-dot animation-delay-200" />
+              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-pulse-dot animation-delay-400" />
             </div>
             <span className="text-[10px]">Loading ad...</span>
           </div>
         ) : (
-          // ✅ Ad will render here automatically via Monetag
           <div className="w-full h-full" />
         )}
       </div>
