@@ -9,8 +9,9 @@ import LevelAudioCard from '@/components/tasks/LevelAudioCard'
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
 import AdModal from '@/components/audio/AdModal'
 import AdBanner from '@/components/ads/AdBanner'
+import SmartlinkOverlay from '@/components/tasks/SmartlinkOverlay' // NEW
 
-// Real Monetag Direct Link — opens in a new tab at milestones 5/10.
+// Real Monetag Direct Link — opens at milestones 5/10.
 const MONETAG_DIRECT_LINK_URL = 'https://omg10.com/4/11270543'
 
 interface CurrentAudio {
@@ -35,7 +36,7 @@ interface StatusResponse {
 }
 
 const REWARD_COINS = 45
-const BONUS_COINS = 10 // keep in sync with BONUS_COINS in bonus/claim/route.ts
+const BONUS_COINS = 10
 const AD_MILESTONE_DISPLAY_COINS = REWARD_COINS
 
 export default function BronzeLevelPage() {
@@ -48,11 +49,12 @@ export default function BronzeLevelPage() {
   const [showComplete, setShowComplete] = useState(false)
   const [countdown, setCountdown] = useState('')
 
+  // NEW: Smartlink overlay state
+  const [showSmartlinkOverlay, setShowSmartlinkOverlay] = useState(false)
   const [pendingNextAudio, setPendingNextAudio] = useState<CurrentAudio | null>(null)
   const [awaitingNext, setAwaitingNext] = useState(false)
-  // Set when the audio that was just completed was a smartlink milestone
-  // (5 or 10). Purely informational — doesn't block anything.
   const [pendingSmartlinkMilestone, setPendingSmartlinkMilestone] = useState<number | null>(null)
+  const [smartlinkMessage, setSmartlinkMessage] = useState('')
 
   const pendingClaimRef = useRef(false)
   const adSessionStartedRef = useRef(false)
@@ -93,7 +95,6 @@ export default function BronzeLevelPage() {
     } finally {
       setLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => { fetchStatus() }, [fetchStatus])
@@ -132,6 +133,37 @@ export default function BronzeLevelPage() {
     }
   }
 
+  // NEW: Handle Smartlink milestone with overlay
+  const handleSmartlinkMilestone = (milestone: number) => {
+    // Open Direct Link in new tab
+    window.open(MONETAG_DIRECT_LINK_URL, '_blank', 'noopener')
+    
+    // Show overlay with timer
+    setSmartlinkMessage(
+      milestone === 5 
+        ? '🎧 Great progress! Watch this ad to unlock audio 6'
+        : milestone === 10
+        ? '🌟 Halfway there! Watch this ad to unlock audio 11'
+        : '🎁 Claim your bonus reward!'
+    )
+    setShowSmartlinkOverlay(true)
+  }
+
+  // NEW: Smartlink overlay complete handler
+  const handleSmartlinkComplete = () => {
+    setShowSmartlinkOverlay(false)
+    // Move to next audio after smartlink is complete
+    if (pendingNextAudio) {
+      setStatus(prev => prev ? { ...prev, current_audio: pendingNextAudio } : prev)
+      setPendingNextAudio(null)
+      setAwaitingNext(false)
+      setPendingSmartlinkMilestone(null)
+      toast.success('Ad complete! Next audio unlocked 🎉')
+    } else {
+      fetchStatus()
+    }
+  }
+
   const handleAudioFinished = async (audioId: string, sessionToken: string | null) => {
     if (submittingAudioRef.current === audioId) return
     submittingAudioRef.current = audioId
@@ -164,7 +196,7 @@ export default function BronzeLevelPage() {
       )
 
       if (data.show_ad) {
-        // Only fires at the 15th/final audio now — full mandatory ad.
+        // Final milestone (15) - Full ad
         setAdMilestone(data.milestone)
         setShowAd(true)
       } else if (data.level_complete) {
@@ -172,9 +204,15 @@ export default function BronzeLevelPage() {
       } else if (data.next_audio) {
         setStatus(prev => prev ? { ...prev, completed_audios: finished } : prev)
         setPendingNextAudio(data.next_audio)
-        // 5 or 10 → smartlink opens when the user taps "Next Audio" below.
-        setPendingSmartlinkMilestone(data.smartlink_milestone || null)
-        setAwaitingNext(true)
+        
+        // Check if this is a smartlink milestone (5 or 10)
+        if (data.smartlink_milestone) {
+          setPendingSmartlinkMilestone(data.smartlink_milestone)
+          // Show smartlink overlay immediately
+          handleSmartlinkMilestone(data.smartlink_milestone)
+        } else {
+          setAwaitingNext(true)
+        }
       } else {
         toast.error('Could not load the next audio. Please refresh.', {
           action: { label: 'Refresh', onClick: () => fetchStatus() },
@@ -189,23 +227,8 @@ export default function BronzeLevelPage() {
     }
   }
 
-  const handleNextAudio = () => {
-    // Smartlink milestone (5/10): open the Monetag Direct Link in a new tab
-    // first — this is the extra ad revenue placement. It never blocks
-    // continuing; the user moves to the next audio the same click
-    // regardless of the new tab.
-    if (pendingSmartlinkMilestone) {
-      window.open(MONETAG_DIRECT_LINK_URL, '_blank', 'noopener')
-    }
-    if (!pendingNextAudio) {
-      fetchStatus()
-      return
-    }
-    setStatus(prev => prev ? { ...prev, current_audio: pendingNextAudio } : prev)
-    setPendingNextAudio(null)
-    setAwaitingNext(false)
-    setPendingSmartlinkMilestone(null)
-  }
+  // Remove old handleNextAudio - replaced by smartlink overlay flow
+  // The "Next Audio" button now only appears for normal transitions (non-milestone)
 
   useEffect(() => {
     if (showAd && !adSessionStartedRef.current) {
@@ -259,7 +282,10 @@ export default function BronzeLevelPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Levels
         </Link>
 
-        <AdBanner position="top" />
+        {/* TOP AD - Fixed */}
+        <div className="w-full">
+          <AdBanner position="top" />
+        </div>
 
         <LevelProgress
           levelName="Bronze"
@@ -288,13 +314,21 @@ export default function BronzeLevelPage() {
           />
         )}
 
-        {!status?.locked && !showAd && awaitingNext && (
+        {!status?.locked && !showAd && awaitingNext && !pendingSmartlinkMilestone && (
           <div className="bg-white rounded-2xl shadow border border-green-100 p-5 text-center">
             <p className="text-sm font-semibold text-green-700 mb-3">
               Audio complete! Ready for the next one?
             </p>
             <button
-              onClick={handleNextAudio}
+              onClick={() => {
+                if (pendingNextAudio) {
+                  setStatus(prev => prev ? { ...prev, current_audio: pendingNextAudio } : prev)
+                  setPendingNextAudio(null)
+                  setAwaitingNext(false)
+                } else {
+                  fetchStatus()
+                }
+              }}
               className="w-full py-3 rounded-xl bg-[#6C63FF] text-white font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
             >
               Next Audio <ArrowRight className="w-4 h-4" />
@@ -308,19 +342,31 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* Own visual placeholder slot only — no longer injects a real ad
-            script itself, see AdBanner.tsx comment. */}
       </div>
 
-      {/* Bottom banner is pinned above the site's BottomNav (h-16/h-20),
-          so it's visually distinct from the top one instead of just
-          sitting wherever it lands in the content flow. */}
+      {/* BOTTOM AD - Fixed with proper positioning */}
       <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
         <div className="max-w-md mx-auto">
           <AdBanner position="bottom" />
         </div>
       </div>
 
+      {/* Smartlink Overlay */}
+      {showSmartlinkOverlay && (
+        <SmartlinkOverlay
+          onComplete={handleSmartlinkComplete}
+          onClose={() => {
+            // Only allow close if not in a smartlink milestone
+            if (!pendingSmartlinkMilestone) {
+              setShowSmartlinkOverlay(false)
+            }
+          }}
+          durationSeconds={15}
+          message={smartlinkMessage}
+        />
+      )}
+
+      {/* Full Ad Modal */}
       {showAd && (
         <AdModal
           onFinished={handleAdClaim}
