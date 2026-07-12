@@ -11,10 +11,6 @@ interface AdModalProps {
   errorMessage?: string | null;
 }
 
-// ✅ REAL Monetag Vignette/Interstitial zone
-const MONETAG_INTERSTITIAL_ZONE_ID = '11270537';
-const MONETAG_INTERSTITIAL_SCRIPT_SRC = 'https://n6wxm.com/vignette.min.js';
-
 export default function AdModal({
   onFinished,
   rewardCoins,
@@ -31,8 +27,8 @@ export default function AdModal({
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
   const adContainerRef = useRef<HTMLDivElement>(null);
-  const scriptInjected = useRef(false);
   const adStarted = useRef(false);
+  const scriptLoaded = useRef(false);
 
   // ✅ Call ads/start when modal mounts
   useEffect(() => {
@@ -59,6 +55,43 @@ export default function AdModal({
         setAdStartError('Network error starting ad');
       });
     }
+  }, []);
+
+  // ✅ Load Monetag script using script tag (once)
+  useEffect(() => {
+    if (scriptLoaded.current) return;
+    scriptLoaded.current = true;
+
+    console.log('🎬 Loading Monetag script...');
+
+    // ✅ Remove any existing scripts
+    document.querySelectorAll('script[data-zone="11270537"]').forEach(s => s.remove());
+
+    // ✅ Create script with data-zone attribute
+    const script = document.createElement('script');
+    script.setAttribute('data-zone', '11270537');
+    script.src = 'https://n6wxm.com/vignette.min.js';
+    script.async = true;
+    
+    script.onload = () => {
+      console.log('✅ Monetag script loaded!');
+      setAdReady(true);
+    };
+    
+    script.onerror = () => {
+      console.error('❌ Monetag script failed to load');
+      setAdReady(true);
+    };
+
+    // ✅ Append to head (not body)
+    document.head.appendChild(script);
+
+    return () => {
+      // ✅ Cleanup: Remove script on unmount
+      document.querySelectorAll('script[data-zone="11270537"]').forEach(s => {
+        try { s.remove(); } catch (e) { /* ignore */ }
+      });
+    };
   }, []);
 
   // Countdown — pauses when tab is hidden
@@ -103,79 +136,6 @@ export default function AdModal({
     };
   }, []);
 
-  // ✅ Inject Monetag script - FIXED: Script in body, not container
-  useEffect(() => {
-    if (scriptInjected.current) return;
-    scriptInjected.current = true;
-
-    console.log('🎬 Injecting Monetag Interstitial script (Zone: 11270537)...');
-
-    // ✅ Remove any existing Monetag scripts first (avoid duplicates)
-    const existingScripts = document.querySelectorAll(
-      `script[data-zone="${MONETAG_INTERSTITIAL_ZONE_ID}"]`
-    );
-    existingScripts.forEach((s) => s.remove());
-
-    // ✅ Create container for Monetag ad (where ad will render)
-    if (adContainerRef.current) {
-      // Clear container first
-      adContainerRef.current.innerHTML = '';
-      
-      const container = document.createElement('div');
-      container.id = 'monetag-interstitial-container';
-      container.style.width = '100%';
-      container.style.height = '100%';
-      container.style.position = 'relative';
-      container.style.overflow = 'hidden';
-      
-      adContainerRef.current.appendChild(container);
-    }
-
-    // ✅ Inject script DIRECTLY into BODY (not container)
-    const script = document.createElement('script');
-    script.dataset.zone = MONETAG_INTERSTITIAL_ZONE_ID;
-    script.src = MONETAG_INTERSTITIAL_SCRIPT_SRC;
-    script.async = true;
-    
-    script.onload = () => {
-      console.log('✅ Monetag ad loaded!');
-      setAdReady(true);
-    };
-    
-    script.onerror = () => {
-      console.error('❌ Monetag ad failed to load');
-      setAdReady(true);
-    };
-
-    // ✅ Append to body
-    document.body.appendChild(script);
-
-    // Fallback timeout
-    const timeout = setTimeout(() => {
-      if (!adReady) {
-        console.log('⏰ Ad load timeout, forcing ready...');
-        setAdReady(true);
-      }
-    }, 8000);
-
-    return () => {
-      clearTimeout(timeout);
-      // ✅ Cleanup: Remove script from body
-      const scripts = document.querySelectorAll(
-        `script[data-zone="${MONETAG_INTERSTITIAL_ZONE_ID}"]`
-      );
-      scripts.forEach((s) => s.remove());
-      
-      // ✅ Cleanup: Remove container
-      if (adContainerRef.current) {
-        const container = adContainerRef.current.querySelector('#monetag-interstitial-container');
-        if (container) {
-          container.remove();
-        }
-      }
-    };
-  }, [adReady]);
-
   const canContinue = secondsLeft <= 0 && adReady;
 
   // Show error if ad start failed
@@ -203,10 +163,9 @@ export default function AdModal({
 
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 p-0">
-      {/* ✅ Full Screen Ad Container */}
       <div className="w-full h-full bg-black relative flex items-center justify-center">
         
-        {/* Ad Container */}
+        {/* ✅ Monetag Ad Container - with data-zone attribute */}
         <div 
           ref={adContainerRef}
           className="w-full h-full flex items-center justify-center"
@@ -217,10 +176,16 @@ export default function AdModal({
               <p className="text-sm font-medium">Loading ad...</p>
               <p className="text-xs text-white/50 mt-1">Please wait</p>
             </div>
-          ) : null}
+          ) : (
+            // ✅ Monetag will render ad inside this div
+            <div 
+              id="monetag-interstitial-container" 
+              className="w-full h-full"
+            />
+          )}
         </div>
 
-        {/* Timer Badge - Top Right */}
+        {/* Timer Badge */}
         <div className="absolute top-4 right-4 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full backdrop-blur-sm font-mono z-10">
           {canContinue ? '✓ Done' : `${secondsLeft}s`}
         </div>
@@ -245,7 +210,7 @@ export default function AdModal({
         )}
       </div>
 
-      {/* ✅ Bottom Claim Button - Overlay on ad */}
+      {/* Bottom Claim Button */}
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent z-10">
         <div className="max-w-sm mx-auto">
           {errorMessage ? (
