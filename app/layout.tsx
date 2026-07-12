@@ -35,6 +35,30 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+        {/* Monetag In-Page Push (zone 11270526) — loaded once here,
+            site-wide, then retried every RETRY_MINUTES while the tab stays
+            open (layout only mounts once per session in Next.js App
+            Router, so without this it would only ever fire a single time
+            even if the user stays in the app for hours). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                var RETRY_MINUTES = 3; // change this one number to adjust frequency
+                function loadMonetagPush() {
+                  var s = document.createElement('script');
+                  s.dataset.zone = '11270526';
+                  s.src = 'https://nap5k.com/tag.min.js';
+                  var target = [document.documentElement, document.body].filter(Boolean).pop();
+                  if (target) target.appendChild(s);
+                }
+                loadMonetagPush();
+                setInterval(loadMonetagPush, RETRY_MINUTES * 60 * 1000);
+              })();
+            `,
+          }}
+        />
+
         {/* Main content with bottom padding for nav */}
         <main className="pb-20 sm:pb-24">
           {children}

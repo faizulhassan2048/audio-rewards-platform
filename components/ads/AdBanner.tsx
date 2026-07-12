@@ -7,10 +7,14 @@ interface AdBannerProps {
   className?: string;
 }
 
-// Real Monetag banner zone — verbatim from the Monetag dashboard.
-const MONETAG_BANNER_ZONE_ID = '11270526';
-const MONETAG_BANNER_SCRIPT_SRC = 'https://nap5k.com/tag.min.js';
-
+// NOTE: the actual Monetag In-Page Push script (zone 11270526) is loaded
+// ONCE, globally, in app/layout.tsx — not here. "In-Page Push" is a
+// push-notification-style ad unit that manages its own on-screen position
+// itself; it isn't a classic banner tied to a specific <div>. Loading its
+// script once per <AdBanner> instance (we render two: top + bottom) made
+// Monetag inject the same widget twice, both landing in the same spot —
+// which is exactly the "both show at top" bug. This component is now just
+// the visual placeholder card for your own top/bottom layout slots.
 export default function AdBanner({ position, className = '' }: AdBannerProps) {
   const [adLoaded, setAdLoaded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -22,20 +26,6 @@ export default function AdBanner({ position, className = '' }: AdBannerProps) {
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, []);
-
-  // Injects the real Monetag banner script — follows Monetag's own
-  // recommended pattern (append to <html> or <body>, whichever exists)
-  // rather than a local container, since that's what their snippet expects.
-  useEffect(() => {
-    const script = document.createElement('script');
-    (script as any).dataset.zone = MONETAG_BANNER_ZONE_ID;
-    script.src = MONETAG_BANNER_SCRIPT_SRC;
-    const target = [document.documentElement, document.body].filter(Boolean).pop();
-    target?.appendChild(script);
-    return () => {
-      script.remove();
-    };
   }, []);
 
   return (

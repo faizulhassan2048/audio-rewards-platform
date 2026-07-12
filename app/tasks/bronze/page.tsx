@@ -308,7 +308,17 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        <AdBanner position="bottom" />
+        {/* Own visual placeholder slot only — no longer injects a real ad
+            script itself, see AdBanner.tsx comment. */}
+      </div>
+
+      {/* Bottom banner is pinned above the site's BottomNav (h-16/h-20),
+          so it's visually distinct from the top one instead of just
+          sitting wherever it lands in the content flow. */}
+      <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
+        <div className="max-w-md mx-auto">
+          <AdBanner position="bottom" />
+        </div>
       </div>
 
       {showAd && (
