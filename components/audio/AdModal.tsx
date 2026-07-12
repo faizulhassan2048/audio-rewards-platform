@@ -11,6 +11,10 @@ interface AdModalProps {
   errorMessage?: string | null;
 }
 
+// ✅ REAL Monetag Vignette/Interstitial zone
+const MONETAG_INTERSTITIAL_ZONE_ID = '11270537';
+const MONETAG_INTERSTITIAL_SCRIPT_SRC = 'https://n6wxm.com/vignette.min.js';
+
 export default function AdModal({
   onFinished,
   rewardCoins,
@@ -22,11 +26,42 @@ export default function AdModal({
   const [adReady, setAdReady] = useState(false);
   const [tabWarning, setTabWarning] = useState(false);
   const [backWarning, setBackWarning] = useState(false);
+  const [adStartError, setAdStartError] = useState<string | null>(null);
+  
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
   const adContainerRef = useRef<HTMLDivElement>(null);
   const scriptInjected = useRef(false);
+  const adStarted = useRef(false);
 
-  // Countdown - pauses on tab switch
+  // ✅ NEW: Call ads/start when modal mounts
+  useEffect(() => {
+    if (!adStarted.current) {
+      adStarted.current = true;
+      console.log('🎬 Starting ad session...');
+      
+      fetch('/api/tasks/level/ads/start', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          console.log('✅ Ad session started:', data.milestone);
+          setAdStartError(null);
+        } else {
+          console.error('❌ Ad start failed:', data.error);
+          setAdStartError(data.error || 'Failed to start ad');
+        }
+      })
+      .catch(err => {
+        console.error('Ad start error:', err);
+        setAdStartError('Network error starting ad');
+      });
+    }
+  }, []);
+
+  // Countdown — pauses when tab is hidden
   useEffect(() => {
     timerRef.current = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
@@ -58,10 +93,14 @@ export default function AdModal({
     const handlePopState = () => {
       window.history.pushState({ adGuard: true }, '');
       setBackWarning(true);
-      setTimeout(() => setBackWarning(false), 2500);
+      if (backWarningTimeout.current) clearTimeout(backWarningTimeout.current);
+      backWarningTimeout.current = setTimeout(() => setBackWarning(false), 2500);
     };
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (backWarningTimeout.current) clearTimeout(backWarningTimeout.current);
+    };
   }, []);
 
   // ✅ Inject Monetag script
@@ -69,7 +108,7 @@ export default function AdModal({
     if (scriptInjected.current || !adContainerRef.current) return;
     scriptInjected.current = true;
 
-    console.log('🎬 Injecting Monetag Interstitial...');
+    console.log('🎬 Injecting Monetag Interstitial script (Zone: 11270537)...');
 
     // Clear container
     adContainerRef.current.innerHTML = '';
@@ -86,8 +125,8 @@ export default function AdModal({
 
     // ✅ Monetag script
     const script = document.createElement('script');
-    script.dataset.zone = '11270537';
-    script.src = 'https://n6wxm.com/vignette.min.js';
+    script.dataset.zone = MONETAG_INTERSTITIAL_ZONE_ID;
+    script.src = MONETAG_INTERSTITIAL_SCRIPT_SRC;
     script.async = true;
     
     script.onload = () => {
@@ -117,9 +156,32 @@ export default function AdModal({
         adContainerRef.current.innerHTML = '';
       }
     };
-  }, []);
+  }, [adReady]);
 
-  const canContinue = secondsLeft <= 0;
+  const canContinue = secondsLeft <= 0 && adReady;
+
+  // Show error if ad start failed
+  if (adStartError) {
+    return (
+      <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 p-4">
+        <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-bold text-gray-800 mb-2">Ad Error</h3>
+          <p className="text-sm text-gray-600 mb-4">{adStartError}</p>
+          <button
+            onClick={onFinished}
+            className="w-full py-3 bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 p-0">
