@@ -34,7 +34,7 @@ export default function AdModal({
   const scriptInjected = useRef(false);
   const adStarted = useRef(false);
 
-  // ✅ NEW: Call ads/start when modal mounts
+  // ✅ Call ads/start when modal mounts
   useEffect(() => {
     if (!adStarted.current) {
       adStarted.current = true;
@@ -103,27 +103,35 @@ export default function AdModal({
     };
   }, []);
 
-  // ✅ Inject Monetag script
+  // ✅ Inject Monetag script - FIXED: Script in body, not container
   useEffect(() => {
-    if (scriptInjected.current || !adContainerRef.current) return;
+    if (scriptInjected.current) return;
     scriptInjected.current = true;
 
     console.log('🎬 Injecting Monetag Interstitial script (Zone: 11270537)...');
 
-    // Clear container
-    adContainerRef.current.innerHTML = '';
+    // ✅ Remove any existing Monetag scripts first (avoid duplicates)
+    const existingScripts = document.querySelectorAll(
+      `script[data-zone="${MONETAG_INTERSTITIAL_ZONE_ID}"]`
+    );
+    existingScripts.forEach((s) => s.remove());
 
-    // ✅ Create container for Monetag
-    const container = document.createElement('div');
-    container.id = 'monetag-interstitial-container';
-    container.style.width = '100%';
-    container.style.height = '100%';
-    container.style.position = 'relative';
-    container.style.overflow = 'hidden';
-    
-    adContainerRef.current.appendChild(container);
+    // ✅ Create container for Monetag ad (where ad will render)
+    if (adContainerRef.current) {
+      // Clear container first
+      adContainerRef.current.innerHTML = '';
+      
+      const container = document.createElement('div');
+      container.id = 'monetag-interstitial-container';
+      container.style.width = '100%';
+      container.style.height = '100%';
+      container.style.position = 'relative';
+      container.style.overflow = 'hidden';
+      
+      adContainerRef.current.appendChild(container);
+    }
 
-    // ✅ Monetag script
+    // ✅ Inject script DIRECTLY into BODY (not container)
     const script = document.createElement('script');
     script.dataset.zone = MONETAG_INTERSTITIAL_ZONE_ID;
     script.src = MONETAG_INTERSTITIAL_SCRIPT_SRC;
@@ -139,8 +147,8 @@ export default function AdModal({
       setAdReady(true);
     };
 
-    // Append script to container
-    container.appendChild(script);
+    // ✅ Append to body
+    document.body.appendChild(script);
 
     // Fallback timeout
     const timeout = setTimeout(() => {
@@ -152,8 +160,18 @@ export default function AdModal({
 
     return () => {
       clearTimeout(timeout);
+      // ✅ Cleanup: Remove script from body
+      const scripts = document.querySelectorAll(
+        `script[data-zone="${MONETAG_INTERSTITIAL_ZONE_ID}"]`
+      );
+      scripts.forEach((s) => s.remove());
+      
+      // ✅ Cleanup: Remove container
       if (adContainerRef.current) {
-        adContainerRef.current.innerHTML = '';
+        const container = adContainerRef.current.querySelector('#monetag-interstitial-container');
+        if (container) {
+          container.remove();
+        }
       }
     };
   }, [adReady]);
