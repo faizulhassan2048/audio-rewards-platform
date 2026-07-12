@@ -1,3 +1,174 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ============================================
+   CUSTOM UTILITIES - Add below Tailwind
+   ============================================ */
+
+/* Animation delays for AdBanner loading dots */
+.animation-delay-200 {
+  animation-delay: 200ms;
+}
+
+.animation-delay-400 {
+  animation-delay: 400ms;
+}
+
+/* ============================================
+   HIDE MONETAG BRANDING / TAGS
+   ============================================ */
+
+/* Hide Monetag branding, labels, powered-by text */
+[data-zone="11270526"] + *,
+[data-zone="11270537"] + *,
+.monetag-branding,
+.monetag-label,
+.monetag-tag,
+.monetag-powered,
+.monetag-credit,
+.monetag-footer,
+[class*="monetag-"]:not(#monetag-banner-top):not(#monetag-banner-bottom):not(#monetag-interstitial-container) {
+  display: none !important;
+}
+
+/* Hide any "Ad" or "Sponsored" labels */
+.ad-label,
+.ad-badge,
+.ad-tag,
+.sponsored-label,
+[class*="ad-label"],
+[class*="ad-badge"],
+[class*="sponsored"] {
+  display: none !important;
+}
+
+/* ============================================
+   CLEAN AD CONTAINERS
+   ============================================ */
+
+#monetag-banner-top,
+#monetag-banner-bottom,
+#monetag-interstitial-container {
+  min-height: 50px;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* Clean up ad iframes */
+#monetag-banner-top iframe,
+#monetag-banner-bottom iframe,
+#monetag-interstitial-container iframe {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 auto !important;
+  border: none !important;
+}
+
+/* ============================================
+   SAFE AREA / BOTTOM NAV SPACING
+   ============================================ */
+
+/* Ensure bottom nav doesn't overlap content */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ============================================
+   AUDIO PLAYER CUSTOM STYLES
+   ============================================ */
+
+/* Custom audio player progress bar */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6C63FF;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6C63FF;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: #e5e7eb;
+  border-radius: 2px;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: #e5e7eb;
+  border-radius: 2px;
+}
+
+/* ============================================
+   UTILITY - FADE IN ANIMATIONS
+   ============================================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* ============================================
+   UTILITY - PULSE DOTS FOR LOADING
+   ============================================ */
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+/* ============================================
+   SCROLLBAR HIDE (Optional)
+   ============================================ */
+
+/* Hide scrollbar but keep scrolling */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

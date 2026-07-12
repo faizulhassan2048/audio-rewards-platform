@@ -1,368 +1,268 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { toast } from 'sonner'
-import { ArrowLeft, ArrowRight } from 'lucide-react'
-import Link from 'next/link'
-import LevelProgress from '@/components/tasks/LevelProgress'
-import LevelAudioCard from '@/components/tasks/LevelAudioCard'
-import LevelCompleteModal from '@/components/tasks/LevelCompleteModal'
-import AdModal from '@/components/audio/AdModal'
-import AdBanner from '@/components/ads/AdBanner'
-import SmartlinkOverlay from '@/components/tasks/SmartlinkOverlay' // NEW
-
-// Real Monetag Direct Link — opens at milestones 5/10.
-const MONETAG_DIRECT_LINK_URL = 'https://omg10.com/4/11270543'
-
-interface CurrentAudio {
-  id: string
-  title: string
-  audio_url: string
-  thumbnail_url?: string | null
-  duration_seconds: number
-}
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'sonner';
+import { ArrowLeft, PlayCircle } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import LevelProgress from '@/components/tasks/LevelProgress';
+import LevelCompleteModal from '@/components/tasks/LevelCompleteModal';
+import AdModal from '@/components/audio/AdModal';
+import AdBanner from '@/components/ads/AdBanner';
+import SmartlinkOverlay from '@/components/tasks/SmartlinkOverlay';
 
 interface StatusResponse {
-  locked: boolean
-  locked_until?: string
-  level_complete?: boolean
-  reward_claimed?: boolean
-  ad_required?: boolean
-  milestone?: number | null
-  level_name: string
-  completed_audios: number
-  total_audios: number
-  current_audio?: CurrentAudio | null
+  locked: boolean;
+  locked_until?: string;
+  level_complete?: boolean;
+  reward_claimed?: boolean;
+  ad_required?: boolean;
+  milestone?: number | null;
+  level_name: string;
+  completed_audios: number;
+  total_audios: number;
+  current_audio?: {
+    id: string;
+    title: string;
+    audio_url: string;
+    thumbnail_url?: string | null;
+    duration_seconds: number;
+    index: number;
+  } | null;
 }
 
-const REWARD_COINS = 45
-const BONUS_COINS = 10
-const AD_MILESTONE_DISPLAY_COINS = REWARD_COINS
+const REWARD_COINS = 45;
+const BONUS_COINS = 10;
 
 export default function BronzeLevelPage() {
-  const [loading, setLoading] = useState(true)
-  const [status, setStatus] = useState<StatusResponse | null>(null)
-  const [showAd, setShowAd] = useState(false)
-  const [adMilestone, setAdMilestone] = useState<number | null>(null)
-  const [adClaiming, setAdClaiming] = useState(false)
-  const [adError, setAdError] = useState<string | null>(null)
-  const [showComplete, setShowComplete] = useState(false)
-  const [countdown, setCountdown] = useState('')
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [showAd, setShowAd] = useState(false);
+  const [adMilestone, setAdMilestone] = useState<number | null>(null);
+  const [adClaiming, setAdClaiming] = useState(false);
+  const [adError, setAdError] = useState<string | null>(null);
+  const [showComplete, setShowComplete] = useState(false);
+  const [countdown, setCountdown] = useState('');
+  const [showSmartlink, setShowSmartlink] = useState(false);
+  const [smartlinkMilestone, setSmartlinkMilestone] = useState<number | null>(null);
 
-  // NEW: Smartlink overlay state
-  const [showSmartlinkOverlay, setShowSmartlinkOverlay] = useState(false)
-  const [pendingNextAudio, setPendingNextAudio] = useState<CurrentAudio | null>(null)
-  const [awaitingNext, setAwaitingNext] = useState(false)
-  const [pendingSmartlinkMilestone, setPendingSmartlinkMilestone] = useState<number | null>(null)
-  const [smartlinkMessage, setSmartlinkMessage] = useState('')
-
-  const pendingClaimRef = useRef(false)
-  const adSessionStartedRef = useRef(false)
-  const submittingAudioRef = useRef<string | null>(null)
+  const pendingClaimRef = useRef(false);
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks/level/status')
+      const res = await fetch('/api/tasks/level/status');
       if (res.status === 401) {
-        toast.error('Please login to continue')
-        setLoading(false)
-        return
+        toast.error('Please login to continue');
+        setLoading(false);
+        return;
       }
-      const statusData: StatusResponse = await res.json()
-      setStatus(statusData)
-      setPendingNextAudio(null)
-      setAwaitingNext(false)
-      setPendingSmartlinkMilestone(null)
+      const statusData: StatusResponse = await res.json();
+      setStatus(statusData);
 
+      // Check if ad required
       if (statusData.ad_required && statusData.milestone) {
-        setAdMilestone(statusData.milestone)
-        setShowAd(true)
-        setAdError(null)
+        setAdMilestone(statusData.milestone);
+        setShowAd(true);
+        setAdError(null);
       } else {
-        setShowAd(false)
-        setAdMilestone(null)
+        setShowAd(false);
+        setAdMilestone(null);
       }
 
+      // Check if level complete
       if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
-        pendingClaimRef.current = true
-        await claimReward()
+        pendingClaimRef.current = true;
+        await claimReward();
       }
     } catch (err) {
-      console.error('fetchStatus error:', err)
-      toast.error('Could not load task progress', {
-        action: { label: 'Retry', onClick: () => fetchStatus() },
-      })
+      console.error('fetchStatus error:', err);
+      toast.error('Could not load task progress');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
-
-  useEffect(() => { fetchStatus() }, [fetchStatus])
+  }, []);
 
   useEffect(() => {
-    if (!status?.locked || !status.locked_until) return
-    const tick = () => {
-      const diff = new Date(status.locked_until!).getTime() - Date.now()
-      if (diff <= 0) { setCountdown(''); fetchStatus(); return }
-      const h = Math.floor(diff / 3600000)
-      const m = Math.floor((diff % 3600000) / 60000)
-      setCountdown(`${h}h ${m}m`)
+    fetchStatus();
+  }, [fetchStatus]);
+
+  // Check for smartlink or ad from URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const smartlink = params.get('smartlink');
+    const ad = params.get('ad');
+    
+    if (smartlink) {
+      setSmartlinkMilestone(parseInt(smartlink));
+      setShowSmartlink(true);
     }
-    tick()
-    const interval = setInterval(tick, 60000)
-    return () => clearInterval(interval)
-  }, [status?.locked, status?.locked_until, fetchStatus])
+    
+    if (ad) {
+      setAdMilestone(parseInt(ad));
+      setShowAd(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!status?.locked || !status.locked_until) return;
+    const tick = () => {
+      const diff = new Date(status.locked_until!).getTime() - Date.now();
+      if (diff <= 0) { setCountdown(''); fetchStatus(); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      setCountdown(`${h}h ${m}m`);
+    };
+    tick();
+    const interval = setInterval(tick, 60000);
+    return () => clearInterval(interval);
+  }, [status?.locked, status?.locked_until, fetchStatus]);
 
   const claimReward = async () => {
     try {
-      const res = await fetch('/api/tasks/level/claim', { method: 'POST' })
-      const data = await res.json()
+      const res = await fetch('/api/tasks/level/claim', { method: 'POST' });
+      const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || 'Could not claim your reward', {
-          action: { label: 'Retry', onClick: () => claimReward() },
-        })
-        return
+        toast.error(data.error || 'Could not claim your reward');
+        return;
       }
-      if (data.success) setShowComplete(true)
+      if (data.success) setShowComplete(true);
     } catch {
-      toast.error('Network error while claiming reward', {
-        action: { label: 'Retry', onClick: () => claimReward() },
-      })
+      toast.error('Network error while claiming reward');
     } finally {
-      pendingClaimRef.current = false
+      pendingClaimRef.current = false;
     }
-  }
-
-  // NEW: Handle Smartlink milestone with overlay
-  const handleSmartlinkMilestone = (milestone: number) => {
-    // Open Direct Link in new tab
-    window.open(MONETAG_DIRECT_LINK_URL, '_blank', 'noopener')
-    
-    // Show overlay with timer
-    setSmartlinkMessage(
-      milestone === 5 
-        ? '🎧 Great progress! Watch this ad to unlock audio 6'
-        : milestone === 10
-        ? '🌟 Halfway there! Watch this ad to unlock audio 11'
-        : '🎁 Claim your bonus reward!'
-    )
-    setShowSmartlinkOverlay(true)
-  }
-
-  // NEW: Smartlink overlay complete handler
-  const handleSmartlinkComplete = () => {
-    setShowSmartlinkOverlay(false)
-    // Move to next audio after smartlink is complete
-    if (pendingNextAudio) {
-      setStatus(prev => prev ? { ...prev, current_audio: pendingNextAudio } : prev)
-      setPendingNextAudio(null)
-      setAwaitingNext(false)
-      setPendingSmartlinkMilestone(null)
-      toast.success('Ad complete! Next audio unlocked 🎉')
-    } else {
-      fetchStatus()
-    }
-  }
-
-  const handleAudioFinished = async (audioId: string, sessionToken: string | null) => {
-    if (submittingAudioRef.current === audioId) return
-    submittingAudioRef.current = audioId
-    try {
-      const res = await fetch('/api/tasks/level/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio_id: audioId, session_token: sessionToken }),
-      })
-      const data = await res.json()
-
-      if (!res.ok) {
-        if (data.error === 'AD_REQUIRED' && data.milestone) {
-          setAdMilestone(data.milestone)
-          setShowAd(true)
-          return
-        }
-        toast.error(data.error || 'Could not save progress', {
-          action: { label: 'Retry', onClick: () => fetchStatus() },
-        })
-        await fetchStatus()
-        return
-      }
-
-      const finished = data.completed_audios
-      toast.success(
-        data.level_complete
-          ? `All ${finished} audios complete!`
-          : `Audio ${finished}/15 done!`
-      )
-
-      if (data.show_ad) {
-        // Final milestone (15) - Full ad
-        setAdMilestone(data.milestone)
-        setShowAd(true)
-      } else if (data.level_complete) {
-        await fetchStatus()
-      } else if (data.next_audio) {
-        setStatus(prev => prev ? { ...prev, completed_audios: finished } : prev)
-        setPendingNextAudio(data.next_audio)
-        
-        // Check if this is a smartlink milestone (5 or 10)
-        if (data.smartlink_milestone) {
-          setPendingSmartlinkMilestone(data.smartlink_milestone)
-          // Show smartlink overlay immediately
-          handleSmartlinkMilestone(data.smartlink_milestone)
-        } else {
-          setAwaitingNext(true)
-        }
-      } else {
-        toast.error('Could not load the next audio. Please refresh.', {
-          action: { label: 'Refresh', onClick: () => fetchStatus() },
-        })
-      }
-    } catch {
-      toast.error('Network error while saving progress', {
-        action: { label: 'Retry', onClick: () => handleAudioFinished(audioId, sessionToken) },
-      })
-    } finally {
-      submittingAudioRef.current = null
-    }
-  }
-
-  // Remove old handleNextAudio - replaced by smartlink overlay flow
-  // The "Next Audio" button now only appears for normal transitions (non-milestone)
-
-  useEffect(() => {
-    if (showAd && !adSessionStartedRef.current) {
-      adSessionStartedRef.current = true
-      fetch('/api/tasks/level/ads/start', { method: 'POST' }).catch(() => {})
-    }
-    if (!showAd) {
-      adSessionStartedRef.current = false
-    }
-  }, [showAd])
+  };
 
   const handleAdClaim = async () => {
-    setAdClaiming(true)
-    setAdError(null)
+    setAdClaiming(true);
+    setAdError(null);
     try {
-      const res = await fetch('/api/tasks/level/ads/verify', { method: 'POST' })
-      const data = await res.json()
+      const res = await fetch('/api/tasks/level/ads/verify', { method: 'POST' });
+      const data = await res.json();
 
       if (!res.ok) {
-        setAdError(data.error || 'Could not verify ad. Please try again.')
-        return
+        setAdError(data.error || 'Could not verify ad. Please try again.');
+        return;
       }
 
-      setShowAd(false)
-      setAdMilestone(null)
+      setShowAd(false);
+      setAdMilestone(null);
 
       if (data.isFinalMilestone) {
-        await claimReward()
+        await claimReward();
       } else {
-        toast.success('Coins locked in! Finish all 15 audios to add them to your wallet.')
+        toast.success('Coins locked in!');
       }
-      await fetchStatus()
+      await fetchStatus();
     } catch {
-      setAdError('Network error, your progress is safe, just tap Retry.')
+      setAdError('Network error, your progress is safe, just tap Retry.');
     } finally {
-      setAdClaiming(false)
+      setAdClaiming(false);
     }
-  }
+  };
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
-      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#6C63FF]" />
-    </div>
-  )
+  const handleSmartlinkComplete = () => {
+    setShowSmartlink(false);
+    setSmartlinkMilestone(null);
+    fetchStatus();
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#6C63FF]" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
-      <div className="max-w-md mx-auto space-y-3">
+      <div className="max-w-md mx-auto space-y-4">
 
+        {/* Back Button */}
         <Link href="/tasks" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6C63FF]">
           <ArrowLeft className="w-4 h-4" /> Back to Levels
         </Link>
 
-        {/* TOP AD - Fixed */}
-        <div className="w-full">
-          <AdBanner position="top" />
+        {/* Top Ad */}
+        <AdBanner position="top" />
+
+        {/* Level Progress */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
+          <LevelProgress
+            levelName="Bronze"
+            completed={status?.completed_audios || 0}
+            total={status?.total_audios || 15}
+          />
         </div>
 
-        <LevelProgress
-          levelName="Bronze"
-          completed={status?.completed_audios || 0}
-          total={status?.total_audios || 15}
-        />
-
+        {/* Locked Status */}
         {status?.locked && (
           <div className="bg-white rounded-2xl border border-amber-100 p-6 text-center">
             <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-50 flex items-center justify-center text-2xl">
               🥉
             </div>
-            <p className="font-semibold text-gray-800 mb-1">Bronze Level complete!</p>
+            <p className="font-semibold text-gray-800 mb-1">Bronze Level Complete!</p>
             <p className="text-sm text-gray-500">
               Next round in <span className="font-bold text-[#6C63FF]">{countdown || '...'}</span>
             </p>
           </div>
         )}
 
-        {!status?.locked && !showAd && status?.current_audio && (
-          <LevelAudioCard
-            audio={status.current_audio}
-            index={status.completed_audios}
-            total={status.total_audios}
-            onFinished={handleAudioFinished}
-          />
+        {/* Current Audio - Play Button */}
+        {!status?.locked && status?.current_audio && !showAd && (
+          <button
+            onClick={() => {
+              const audio = status.current_audio;
+              if (audio) {
+                router.push(`/tasks/audio/${audio.id}?index=${status.completed_audios + 1}&total=${status.total_audios}`);
+              }
+            }}
+            className="w-full bg-white rounded-2xl shadow-lg border border-gray-100 p-6 hover:shadow-xl transition-all group"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-r from-[#6C63FF] to-purple-500 flex items-center justify-center group-hover:scale-105 transition-transform">
+                <PlayCircle className="w-8 h-8 text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-sm text-gray-500">Next Audio</p>
+                <h3 className="font-bold text-gray-800">
+                  Audio {status.completed_audios + 1}/{status.total_audios}
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Tap to start listening
+                </p>
+              </div>
+              <span className="text-sm font-medium text-[#6C63FF]">
+                {status.completed_audios + 1}/{status.total_audios}
+              </span>
+            </div>
+          </button>
         )}
 
-        {!status?.locked && !showAd && awaitingNext && !pendingSmartlinkMilestone && (
-          <div className="bg-white rounded-2xl shadow border border-green-100 p-5 text-center">
-            <p className="text-sm font-semibold text-green-700 mb-3">
-              Audio complete! Ready for the next one?
-            </p>
-            <button
-              onClick={() => {
-                if (pendingNextAudio) {
-                  setStatus(prev => prev ? { ...prev, current_audio: pendingNextAudio } : prev)
-                  setPendingNextAudio(null)
-                  setAwaitingNext(false)
-                } else {
-                  fetchStatus()
-                }
-              }}
-              className="w-full py-3 rounded-xl bg-[#6C63FF] text-white font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
-            >
-              Next Audio <ArrowRight className="w-4 h-4" />
-            </button>
+        {/* No Audio Available */}
+        {!status?.locked && !status?.current_audio && !status?.level_complete && !showAd && (
+          <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-6 text-center">
+            <p className="text-sm text-gray-500">Loading next audio...</p>
           </div>
         )}
 
-        {!status?.locked && !status?.current_audio && !status?.level_complete && !showAd && !awaitingNext && (
-          <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500 bg-white">
-            New audios coming soon. Check back shortly!
+        {/* Bottom Ad */}
+        <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
+          <div className="max-w-md mx-auto">
+            <AdBanner position="bottom" />
           </div>
-        )}
-
-      </div>
-
-      {/* BOTTOM AD - Fixed with proper positioning */}
-      <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
-        <div className="max-w-md mx-auto">
-          <AdBanner position="bottom" />
         </div>
       </div>
 
       {/* Smartlink Overlay */}
-      {showSmartlinkOverlay && (
+      {showSmartlink && (
         <SmartlinkOverlay
           onComplete={handleSmartlinkComplete}
-          onClose={() => {
-            // Only allow close if not in a smartlink milestone
-            if (!pendingSmartlinkMilestone) {
-              setShowSmartlinkOverlay(false)
-            }
-          }}
+          onClose={() => setShowSmartlink(false)}
           durationSeconds={15}
-          message={smartlinkMessage}
+          message={`🎯 ${smartlinkMilestone === 5 ? 'Great progress! Unlock audio 6' : 'Halfway there! Unlock audio 11'}`}
         />
       )}
 
@@ -370,19 +270,20 @@ export default function BronzeLevelPage() {
       {showAd && (
         <AdModal
           onFinished={handleAdClaim}
-          rewardCoins={AD_MILESTONE_DISPLAY_COINS}
+          rewardCoins={REWARD_COINS}
           claiming={adClaiming}
           errorMessage={adError}
         />
       )}
 
+      {/* Level Complete Modal */}
       {showComplete && (
         <LevelCompleteModal
           rewardCoins={REWARD_COINS}
           bonusCoins={BONUS_COINS}
-          onClose={() => { setShowComplete(false); fetchStatus() }}
+          onClose={() => { setShowComplete(false); fetchStatus(); }}
         />
       )}
     </div>
-  )
+  );
 }
