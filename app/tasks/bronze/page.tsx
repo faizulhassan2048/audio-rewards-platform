@@ -176,8 +176,12 @@ export default function BronzeLevelPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Levels
         </Link>
 
-        {/* Top Ad */}
-        <AdBanner position="top" />
+        {/* ✅ TOP AD - Unique key for bronze page */}
+        <AdBanner 
+          key="bronze-top"
+          position="top" 
+          refreshKey="bronze-page-top"
+        />
 
         {/* Level Progress */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
@@ -239,10 +243,14 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* Bottom Ad */}
+        {/* ✅ BOTTOM AD - Unique key for bronze page */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
-            <AdBanner position="bottom" />
+            <AdBanner 
+              key="bronze-bottom"
+              position="bottom" 
+              refreshKey="bronze-page-bottom"
+            />
           </div>
         </div>
       </div>

@@ -94,9 +94,13 @@ export default function TasksHubPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto space-y-4">
 
-        {/* ✅ TOP AD */}
+        {/* ✅ TOP AD - Unique key for tasks page */}
         <div className="w-full">
-          <AdBanner position="top" />
+          <AdBanner 
+            key="tasks-top"
+            position="top" 
+            refreshKey="tasks-page-top"
+          />
         </div>
 
         {/* Header */}
@@ -155,9 +159,13 @@ export default function TasksHubPage() {
           <GoldLevel unlocked={firstWithdrawalDone} />
         </div>
 
-        {/* ✅ BOTTOM AD */}
+        {/* ✅ BOTTOM AD - Unique key for tasks page */}
         <div className="pt-2">
-          <AdBanner position="bottom" />
+          <AdBanner 
+            key="tasks-bottom"
+            position="bottom" 
+            refreshKey="tasks-page-bottom"
+          />
         </div>
       </div>
     </div>

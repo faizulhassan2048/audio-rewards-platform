@@ -36,6 +36,9 @@ export default function AudioPlayerPage() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
 
+  // ✅ Unique refresh key for this audio page
+  const refreshKey = `audio-${audioId}`;
+
   // Fetch audio data and create session - PARALLEL
   useEffect(() => {
     const fetchAudio = async () => {
@@ -200,7 +203,7 @@ export default function AudioPlayerPage() {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
         setTimeout(() => {
-          // ✅ Force page reload for fresh ads
+          // ✅ Route change → Ad will auto-refresh
           router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
         }, 1000);
       } else {
@@ -268,9 +271,13 @@ export default function AudioPlayerPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP AD - Key se force refresh */}
+        {/* ✅ TOP AD - Unique key for route-based refresh */}
         <div className="mb-3">
-          <AdBanner key={`top-${audioId}`} position="top" />
+          <AdBanner 
+            key={`top-${audioId}`}
+            position="top" 
+            refreshKey={`${refreshKey}-top`}
+          />
         </div>
 
         {/* Back Button */}
@@ -422,10 +429,14 @@ export default function AudioPlayerPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM AD - Key se force refresh */}
+        {/* ✅ BOTTOM AD - Unique key for route-based refresh */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
-            <AdBanner key={`bottom-${audioId}`} position="bottom" />
+            <AdBanner 
+              key={`bottom-${audioId}`}
+              position="bottom" 
+              refreshKey={`${refreshKey}-bottom`}
+            />
           </div>
         </div>
       </div>
