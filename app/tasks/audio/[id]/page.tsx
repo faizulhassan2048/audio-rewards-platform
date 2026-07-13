@@ -33,11 +33,16 @@ export default function AudioPlayerPage() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [audioLoaded, setAudioLoaded] = useState(false);
   
+  // ✅ Generate unique ad key for each audio
+  const [adRefreshToken, setAdRefreshToken] = useState(Date.now());
+  
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // ✅ Unique refresh key for this audio page
-  const refreshKey = `audio-${audioId}`;
+  // ✅ Update ad key when audioId changes
+  useEffect(() => {
+    setAdRefreshToken(Date.now());
+  }, [audioId]);
 
   // Fetch audio data and create session - PARALLEL
   useEffect(() => {
@@ -47,7 +52,6 @@ export default function AudioPlayerPage() {
         const index = parseInt(params.get('index') || '1');
         const total = parseInt(params.get('total') || '15');
 
-        // ✅ Parallel fetch - faster loading
         const [sessionRes, audioRes] = await Promise.all([
           fetch('/api/audio/session', {
             method: 'POST',
@@ -57,7 +61,6 @@ export default function AudioPlayerPage() {
           fetch(`/api/tasks/audio/${audioId}`),
         ]);
 
-        // Session token
         let token = null;
         let audioUrl = null;
         
@@ -68,7 +71,6 @@ export default function AudioPlayerPage() {
           setSessionToken(token);
         }
 
-        // Audio data
         if (audioRes.ok) {
           const data = await audioRes.json();
           setAudio({
@@ -77,7 +79,6 @@ export default function AudioPlayerPage() {
             total: total
           });
         } else if (audioUrl) {
-          // Fallback
           setAudio({
             id: audioId,
             title: `Audio ${index}`,
@@ -101,7 +102,6 @@ export default function AudioPlayerPage() {
   // Preload audio when URL changes
   useEffect(() => {
     if (audio && audioRef.current) {
-      // ✅ Preload audio
       audioRef.current.load();
       setAudioLoaded(true);
     }
@@ -143,7 +143,6 @@ export default function AudioPlayerPage() {
     setIsSubmitting(true);
     setAudioComplete(true);
     
-    // Send final heartbeat
     if (sessionToken) {
       await fetch('/api/audio/heartbeat', {
         method: 'POST',
@@ -180,7 +179,6 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // Check if level complete (audio 15)
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
         setTimeout(() => {
@@ -189,7 +187,6 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // Check if milestone reached (5 or 10) - Smartlink
       if (data.smartlink_milestone) {
         toast.info(`📢 Smartlink ad required for audio ${data.smartlink_milestone}`);
         setTimeout(() => {
@@ -198,12 +195,10 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // Normal: Go to next audio
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
         setTimeout(() => {
-          // ✅ Route change → Ad will auto-refresh
           router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
         }, 1000);
       } else {
@@ -267,16 +262,19 @@ export default function AudioPlayerPage() {
     );
   }
 
+  // ✅ Unique keys for ads
+  const adKey = `audio-${audioId}-${adRefreshToken}`;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP AD - Unique key for route-based refresh */}
+        {/* ✅ TOP AD - Unique key for each audio */}
         <div className="mb-3">
           <AdBanner 
-            key={`top-${audioId}`}
+            key={`top-${adKey}`}
             position="top" 
-            refreshKey={`${refreshKey}-top`}
+            refreshKey={`${adKey}-top`}
           />
         </div>
 
@@ -361,7 +359,7 @@ export default function AudioPlayerPage() {
             <span>{formatTime(duration)}</span>
           </div>
 
-          {/* ✅ Audio Player - with preload */}
+          {/* Audio Player */}
           <audio
             ref={audioRef}
             src={audio.audio_url}
@@ -409,7 +407,7 @@ export default function AudioPlayerPage() {
             </div>
           )}
 
-          {/* Play Button (if not started) */}
+          {/* Play Button */}
           {!isPlaying && !audioComplete && audioLoaded && (
             <button
               onClick={togglePlay}
@@ -420,7 +418,7 @@ export default function AudioPlayerPage() {
             </button>
           )}
 
-          {/* Loading state for audio */}
+          {/* Loading state */}
           {!audioLoaded && !audioComplete && (
             <div className="mt-4 w-full py-3 bg-gray-200 text-gray-500 rounded-xl font-semibold flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -429,13 +427,13 @@ export default function AudioPlayerPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM AD - Unique key for route-based refresh */}
+        {/* ✅ BOTTOM AD - Unique key for each audio */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
             <AdBanner 
-              key={`bottom-${audioId}`}
+              key={`bottom-${adKey}`}
               position="bottom" 
-              refreshKey={`${refreshKey}-bottom`}
+              refreshKey={`${adKey}-bottom`}
             />
           </div>
         </div>

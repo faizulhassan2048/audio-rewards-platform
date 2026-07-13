@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react';
 interface AdBannerProps {
   position: 'top' | 'bottom';
   className?: string;
-  // ✅ Unique key for each page/route
   refreshKey?: string;
 }
 
@@ -15,49 +14,19 @@ export default function AdBanner({
   refreshKey = 'default'
 }: AdBannerProps) {
   const [adReady, setAdReady] = useState(false);
-  const [loadCount, setLoadCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const scriptInjected = useRef(false);
   const mountedRef = useRef(true);
-
-  // ✅ Reset state when refreshKey changes (route change)
-  useEffect(() => {
-    console.log(`🔄 AdBanner [${position}] refreshKey changed:`, refreshKey);
-    
-    // Reset state for fresh load
-    setAdReady(false);
-    scriptInjected.current = false;
-    setLoadCount(prev => prev + 1);
-    
-    // Clear container
-    if (containerRef.current) {
-      containerRef.current.innerHTML = '';
-    }
-    
-    // Remove existing Monetag scripts
-    const existingScripts = document.querySelectorAll(
-      `script[data-zone="11270526"]`
-    );
-    existingScripts.forEach((s) => s.remove());
-    
-    // Re-inject after small delay
-    const timer = setTimeout(() => {
-      if (mountedRef.current) {
-        injectAd();
-      }
-    }, 100);
-    
-    return () => clearTimeout(timer);
-  }, [refreshKey]);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // ✅ Inject Monetag script
   const injectAd = () => {
     if (scriptInjected.current || !mountedRef.current) return;
     scriptInjected.current = true;
 
-    console.log(`🎬 Injecting Monetag ad [${position}]`);
+    console.log(`🎬 Injecting Monetag ad [${position}] with key:`, refreshKey);
 
-    // Create container for ad
+    // Clear container
     if (containerRef.current) {
       containerRef.current.innerHTML = '';
       
@@ -70,7 +39,13 @@ export default function AdBanner({
       containerRef.current.appendChild(container);
     }
 
-    // ✅ Use Monetag In-Page Push (zone 11270526)
+    // Remove any existing Monetag scripts
+    const existingScripts = document.querySelectorAll(
+      `script[data-zone="11270526"]`
+    );
+    existingScripts.forEach((s) => s.remove());
+
+    // ✅ Monetag In-Page Push (Zone: 11270526)
     const script = document.createElement('script');
     script.dataset.zone = '11270526';
     script.src = 'https://nap5k.com/tag.min.js';
@@ -89,50 +64,100 @@ export default function AdBanner({
     document.body.appendChild(script);
 
     // Fallback timeout
-    const timeout = setTimeout(() => {
+    timeoutRef.current = setTimeout(() => {
       if (!adReady && mountedRef.current) {
         console.log(`⏰ Ad load timeout [${position}]`);
         setAdReady(true);
       }
     }, 5000);
-
-    // Store timeout for cleanup
-    (script as any)._timeout = timeout;
   };
 
-  // ✅ Cleanup on unmount
+  // ✅ Refresh when refreshKey changes
+  useEffect(() => {
+    console.log(`🔄 AdBanner [${position}] REFRESHING with key:`, refreshKey);
+    
+    // Reset state
+    setAdReady(false);
+    scriptInjected.current = false;
+    
+    // Clear timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    
+    // Clear container
+    if (containerRef.current) {
+      containerRef.current.innerHTML = '';
+    }
+    
+    // Remove existing Monetag scripts
+    const existingScripts = document.querySelectorAll(
+      `script[data-zone="11270526"]`
+    );
+    existingScripts.forEach((s) => s.remove());
+    
+    // Inject fresh ad after delay
+    const timer = setTimeout(() => {
+      if (mountedRef.current) {
+        injectAd();
+      }
+    }, 200);
+    
+    return () => {
+      clearTimeout(timer);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, [refreshKey]);
+
+  // ✅ Initial mount
   useEffect(() => {
     mountedRef.current = true;
     
+    if (mountedRef.current && !scriptInjected.current) {
+      const timer = setTimeout(injectAd, 300);
+      return () => {
+        clearTimeout(timer);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+      };
+    }
+    
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // ✅ Cleanup on unmount
+  useEffect(() => {
     return () => {
       mountedRef.current = false;
       console.log(`🗑️ AdBanner unmounted [${position}]`);
+      
+      // Clear timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       
       // Remove scripts
       const scripts = document.querySelectorAll(
         `script[data-zone="11270526"]`
       );
       scripts.forEach((s) => {
-        if ((s as any)._timeout) {
-          clearTimeout((s as any)._timeout);
-        }
         s.remove();
       });
       
-      // Clear container
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
       }
     };
   }, [position]);
-
-  // ✅ Initial mount
-  useEffect(() => {
-    if (mountedRef.current && !scriptInjected.current) {
-      const timer = setTimeout(injectAd, 500);
-      return () => clearTimeout(timer);
-    }
-  }, []);
 
   return (
     <div
@@ -143,7 +168,7 @@ export default function AdBanner({
         border border-gray-100/50
         ${className}
       `}
-      data-refresh-count={loadCount}
+      data-refresh-key={refreshKey}
     >
       {!adReady ? (
         <div className="flex items-center gap-2 text-gray-400">

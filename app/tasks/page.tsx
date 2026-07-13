@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, ChevronRight, Award, Sparkles, TrendingUp } from 'lucide-react'
+import { Lock, ChevronRight } from 'lucide-react'
 import LevelProgress from '@/components/tasks/LevelProgress'
 import AdBanner from '@/components/ads/AdBanner'
 import { createClient } from '@/lib/supabase/client'
@@ -25,6 +25,9 @@ export default function TasksHubPage() {
   const [firstWithdrawalDone, setFirstWithdrawalDone] = useState(false)
   const [countdown, setCountdown] = useState('')
 
+  // ✅ Unique key for tasks page ads
+  const [adKey] = useState(() => `tasks-${Date.now()}`);
+
   const fetchStatus = useCallback(async (isBackgroundRefresh = false) => {
     try {
       const supabase = createClient()
@@ -46,7 +49,7 @@ export default function TasksHubPage() {
           status: statusData,
           firstWithdrawalDone: paid,
         }))
-      } catch { /* sessionStorage can fail in private mode — non-fatal */ }
+      } catch { /* non-fatal */ }
     } catch (err) {
       if (!isBackgroundRefresh) console.error('fetchStatus error:', err)
     } finally {
@@ -97,9 +100,9 @@ export default function TasksHubPage() {
         {/* ✅ TOP AD - Unique key for tasks page */}
         <div className="w-full">
           <AdBanner 
-            key="tasks-top"
+            key={`tasks-top-${adKey}`}
             position="top" 
-            refreshKey="tasks-page-top"
+            refreshKey={`${adKey}-top`}
           />
         </div>
 
@@ -109,7 +112,7 @@ export default function TasksHubPage() {
           <p className="text-sm text-gray-500">Complete levels to earn rewards</p>
         </div>
 
-        {/* Bronze Level - Always Visible */}
+        {/* Bronze Level */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-shadow">
           <button
             type="button"
@@ -153,7 +156,7 @@ export default function TasksHubPage() {
           )}
         </div>
 
-        {/* Silver & Gold Levels - Professional Grid */}
+        {/* Silver & Gold Levels */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <SilverLevel unlocked={firstWithdrawalDone} />
           <GoldLevel unlocked={firstWithdrawalDone} />
@@ -162,9 +165,9 @@ export default function TasksHubPage() {
         {/* ✅ BOTTOM AD - Unique key for tasks page */}
         <div className="pt-2">
           <AdBanner 
-            key="tasks-bottom"
+            key={`tasks-bottom-${adKey}`}
             position="bottom" 
-            refreshKey="tasks-page-bottom"
+            refreshKey={`${adKey}-bottom`}
           />
         </div>
       </div>
@@ -172,7 +175,6 @@ export default function TasksHubPage() {
   )
 }
 
-// ✅ Silver Level Component - Professional Design
 function SilverLevel({ unlocked }: { unlocked: boolean }) {
   if (unlocked) {
     return (
@@ -211,7 +213,6 @@ function SilverLevel({ unlocked }: { unlocked: boolean }) {
   )
 }
 
-// ✅ Gold Level Component - Professional Design
 function GoldLevel({ unlocked }: { unlocked: boolean }) {
   if (unlocked) {
     return (
