@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getNextMidnightPKT } from '@/lib/levelRotation'
+// 🚫 Lock removed - getNextMidnightPKT import nahi chahiye ab
+// import { getNextMidnightPKT } from '@/lib/levelRotation'
 
 const LEVEL_NAME = 'bronze'
 const REWARD_COINS = 45
@@ -94,21 +95,19 @@ export async function POST() {
     // non-fatal
   }
 
-  // ── Fixed daily reset (midnight PKT) ─────────────────────────────
-  // Not a rolling 24h-from-now lock. Whatever time the user finishes at,
-  // they're locked only until the *next* upcoming 12:00 AM Pakistan time —
-  // so everyone resets together at midnight, not on their own personal timer.
-  const lockedUntil = getNextMidnightPKT()
-
-  await supabase
-    .from('user_levels')
-    .update({ locked_until: lockedUntil.toISOString() })
-    .eq('id', level.id)
+  // ── 🚫 LOCK REMOVED ─────────────────────────────────────────────
+  // User can replay immediately after level complete.
+  // No midnight lock anymore.
+  // const lockedUntil = getNextMidnightPKT()
+  // await supabase
+  //   .from('user_levels')
+  //   .update({ locked_until: lockedUntil.toISOString() })
+  //   .eq('id', level.id)
 
   return NextResponse.json({
     success: true,
     coins_awarded: REWARD_COINS,
     new_balance: balanceAfter,
-    locked_until: lockedUntil.toISOString(),
+    // locked_until: lockedUntil.toISOString(),  // 🚫 Removed
   })
 }
