@@ -44,6 +44,9 @@ export default function BronzeLevelPage() {
   const [showComplete, setShowComplete] = useState(false);
   const [countdown, setCountdown] = useState('');
 
+  // ✅ Unique key for bronze page ads
+  const [adKey] = useState(() => `bronze-${Date.now()}`);
+
   const pendingClaimRef = useRef(false);
 
   const fetchStatus = useCallback(async () => {
@@ -178,9 +181,9 @@ export default function BronzeLevelPage() {
 
         {/* ✅ TOP AD - Unique key for bronze page */}
         <AdBanner 
-          key="bronze-top"
+          key={`bronze-top-${adKey}`}
           position="top" 
-          refreshKey="bronze-page-top"
+          refreshKey={`${adKey}-top`}
         />
 
         {/* Level Progress */}
@@ -247,9 +250,9 @@ export default function BronzeLevelPage() {
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
             <AdBanner 
-              key="bronze-bottom"
+              key={`bronze-bottom-${adKey}`}
               position="bottom" 
-              refreshKey="bronze-page-bottom"
+              refreshKey={`${adKey}-bottom`}
             />
           </div>
         </div>
