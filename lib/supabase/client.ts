@@ -4,9 +4,7 @@ export const createClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  console.log('🔑 Supabase URL:', url ? '✅ Present' : '❌ Missing')
-  console.log('🔑 Supabase Key:', key ? '✅ Present' : '❌ Missing')
-
+  
   if (!url || !key) {
     console.error('❌ Supabase credentials missing:', { url: !!url, key: !!key })
     throw new Error('Supabase credentials missing')
