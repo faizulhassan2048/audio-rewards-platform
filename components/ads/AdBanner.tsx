@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 interface AdBannerProps {
   position: 'top' | 'bottom';
@@ -13,18 +14,22 @@ export default function AdBanner({
   className = '',
   refreshKey = 'default'
 }: AdBannerProps) {
+  const pathname = usePathname();
   const [adReady, setAdReady] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const scriptInjected = useRef(false);
   const mountedRef = useRef(true);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ✅ combinedKey - route badle ya refreshKey badle, dono pe naya ad trigger hoga
+  const combinedKey = `${pathname}-${refreshKey}`;
+
   // ✅ Inject Monetag script
   const injectAd = () => {
     if (scriptInjected.current || !mountedRef.current) return;
     scriptInjected.current = true;
 
-    console.log(`🎬 Injecting Monetag ad [${position}] with key:`, refreshKey);
+    console.log(`🎬 Injecting Monetag ad [${position}] with key:`, combinedKey);
 
     // Clear container
     if (containerRef.current) {
@@ -72,9 +77,9 @@ export default function AdBanner({
     }, 5000);
   };
 
-  // ✅ Refresh when refreshKey changes
+  // ✅ Refresh when route (pathname) OR refreshKey changes
   useEffect(() => {
-    console.log(`🔄 AdBanner [${position}] REFRESHING with key:`, refreshKey);
+    console.log(`🔄 AdBanner [${position}] REFRESHING with key:`, combinedKey);
     
     // Reset state
     setAdReady(false);
@@ -111,7 +116,7 @@ export default function AdBanner({
         timeoutRef.current = null;
       }
     };
-  }, [refreshKey]);
+  }, [combinedKey]); // 👈 ab pathname + refreshKey dono track hote hain
 
   // ✅ Initial mount
   useEffect(() => {
@@ -168,7 +173,7 @@ export default function AdBanner({
         border border-gray-100/50
         ${className}
       `}
-      data-refresh-key={refreshKey}
+      data-refresh-key={combinedKey}
     >
       {!adReady ? (
         <div className="flex items-center gap-2 text-gray-400">

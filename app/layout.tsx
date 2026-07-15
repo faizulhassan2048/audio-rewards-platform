@@ -30,24 +30,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        {/* Monetag In-Page Push - Loaded once globally */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                // Only load if not already loaded
-                if (!window.__monetagLoaded) {
-                  window.__monetagLoaded = true;
-                  var s = document.createElement('script');
-                  s.dataset.zone = '11270526';
-                  s.src = 'https://nap5k.com/tag.min.js';
-                  var target = document.documentElement || document.body;
-                  if (target) target.appendChild(s);
-                }
-              })();
-            `,
-          }}
-        />
+        {/* ✅ Global Monetag script yahan se hata diya gaya hai.
+            Ab ad sirf jahan <AdBanner /> component call hoga wahi load hoga
+            (Tasks, Bronze, aur jahan bhi tum aage add karo) */}
 
         <main className="pb-20 sm:pb-24">
           {children}
