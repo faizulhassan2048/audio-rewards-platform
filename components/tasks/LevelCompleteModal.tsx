@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { PartyPopper, Coins, Gift, Loader2, Clock } from 'lucide-react';
 
-// Real Monetag Direct Link — opens when the optional bonus is claimed.
-const MONETAG_DIRECT_LINK_URL = 'https://omg10.com/4/11270543';
+// ✅ Adsterra Direct Link — opens when the optional bonus is claimed.
+// Replace with your Adsterra Direct Link
+const ADSTERRA_DIRECT_LINK_URL = 'https://www.adsterra.com/your-direct-link';
 
 interface LevelCompleteModalProps {
   rewardCoins: number;
@@ -26,7 +27,7 @@ export default function LevelCompleteModal({
   // Handle Bonus Claim - Opens Direct Link and starts timer
   const handleClaimBonus = () => {
     // Open Direct Link in new tab
-    window.open(MONETAG_DIRECT_LINK_URL, '_blank', 'noopener');
+    window.open(ADSTERRA_DIRECT_LINK_URL, '_blank', 'noopener');
     setDirectLinkOpened(true);
     setBonusState('claiming');
     setBonusError(null);

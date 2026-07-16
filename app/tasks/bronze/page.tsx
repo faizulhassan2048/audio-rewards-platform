@@ -171,9 +171,8 @@ export default function BronzeLevelPage() {
               if (audio) {
                 // ✅ Pass milestone info to audio page
                 const isMilestone = MILESTONES.includes(status.completed_audios + 1);
-                router.push(
-                  `/tasks/audio/${audio.id}?index=${status.completed_audios + 1}&total=${status.total_audios}&milestone=${isMilestone}`
-                );
+                const url = `/tasks/audio/${audio.id}?index=${status.completed_audios + 1}&total=${status.total_audios}&milestone=${isMilestone}`;
+                window.location.href = url;
               }
             }}
             className="w-full bg-white rounded-2xl shadow-lg border border-gray-100 p-6 hover:shadow-xl transition-all group"
@@ -224,7 +223,3 @@ export default function BronzeLevelPage() {
     </div>
   );
 }
-
-
-
-
