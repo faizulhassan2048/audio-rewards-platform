@@ -10,8 +10,12 @@ declare global {
 
 export default function BottomBanner() {
   const adRef = useRef<HTMLDivElement>(null);
+  const mounted = useRef(false);
 
   useEffect(() => {
+    if (mounted.current) return;
+    mounted.current = true;
+
     if (!adRef.current) return;
 
     // ✅ Clear previous ad
