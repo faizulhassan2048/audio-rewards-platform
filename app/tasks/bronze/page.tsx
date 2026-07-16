@@ -33,7 +33,6 @@ interface StatusResponse {
 const REWARD_COINS = 45;
 const BONUS_COINS = 10;
 
-// ✅ Milestones where Native + Smartlink appear
 const MILESTONES = [5, 10, 15];
 
 export default function BronzeLevelPage() {
@@ -57,13 +56,11 @@ export default function BronzeLevelPage() {
       const statusData: StatusResponse = await res.json();
       setStatus(statusData);
 
-      // ✅ Auto-claim reward when level complete
       if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
         pendingClaimRef.current = true;
         await claimReward();
       }
 
-      // ✅ If level complete and reward claimed, page will auto-reset via status API
       if (statusData.level_complete && statusData.reward_claimed) {
         if (!isResetting.current) {
           isResetting.current = true;
@@ -121,7 +118,6 @@ export default function BronzeLevelPage() {
     window.location.reload();
   };
 
-  // ✅ Check if current audio is a milestone
   const isMilestone = status?.current_audio
     ? MILESTONES.includes(status.completed_audios + 1)
     : false;
@@ -142,7 +138,7 @@ export default function BronzeLevelPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Levels
         </Link>
 
-        {/* ✅ TOP BANNER */}
+        {/* ✅ TOP BANNER - 300x250 */}
         <TopBanner />
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
@@ -205,9 +201,9 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ✅ BOTTOM BANNER */}
-        <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
-          <div className="max-w-md mx-auto">
+        {/* ✅ BOTTOM BANNER - 320x50 (Fixed at bottom) */}
+        <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
+          <div className="max-w-md mx-auto px-4 pointer-events-auto">
             <BottomBanner />
           </div>
         </div>

@@ -95,7 +95,7 @@ export default function TasksHubPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto space-y-4">
 
-        {/* ✅ TOP BANNER */}
+        {/* ✅ TOP BANNER - 300x250 */}
         <TopBanner />
 
         {/* Header */}
@@ -154,8 +154,12 @@ export default function TasksHubPage() {
           <GoldLevel unlocked={firstWithdrawalDone} />
         </div>
 
-        {/* ✅ BOTTOM BANNER */}
-        <BottomBanner />
+        {/* ✅ BOTTOM BANNER - 320x50 (Fixed at bottom) */}
+        <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
+          <div className="max-w-md mx-auto px-4 pointer-events-auto">
+            <BottomBanner />
+          </div>
+        </div>
 
       </div>
     </div>
