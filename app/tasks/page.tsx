@@ -153,8 +153,9 @@ export default function TasksHubPage() {
           <GoldLevel unlocked={firstWithdrawalDone} />
         </div>
 
-        {/* ✅ BOTTOM AD */}
-        <AdWrapper type="bottom" />
+        {/* ❌ BOTTOM AD - Removed */}
+        {/* <AdWrapper type="bottom" /> */}
+
       </div>
     </div>
   )
