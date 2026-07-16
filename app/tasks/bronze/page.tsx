@@ -7,7 +7,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LevelProgress from '@/components/tasks/LevelProgress';
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal';
-import AdWrapper from '@/components/ads/AdWrapper';
+import TopBanner from '@/components/ads/TopBanner';
+import BottomBanner from '@/components/ads/BottomBanner';
 
 interface StatusResponse {
   locked: boolean;
@@ -141,8 +142,8 @@ export default function BronzeLevelPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Levels
         </Link>
 
-        {/* ✅ TOP AD */}
-        <AdWrapper type="top" />
+        {/* ✅ TOP BANNER */}
+        <TopBanner />
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
           <LevelProgress
@@ -204,12 +205,12 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ❌ BOTTOM AD - Removed */}
-        {/* <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
+        {/* ✅ BOTTOM BANNER */}
+        <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
-            <AdWrapper type="bottom" />
+            <BottomBanner />
           </div>
-        </div> */}
+        </div>
 
       </div>
 

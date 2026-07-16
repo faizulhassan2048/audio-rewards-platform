@@ -5,7 +5,10 @@ import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import AdWrapper from '@/components/ads/AdWrapper';
+import TopBanner from '@/components/ads/TopBanner';
+import BottomBanner from '@/components/ads/BottomBanner';
+import NativeBanner from '@/components/ads/NativeBanner';
+import SmartlinkButton from '@/components/ads/SmartlinkButton';
 
 interface AudioData {
   id: string;
@@ -286,9 +289,9 @@ export default function AudioPlayerPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP AD */}
+        {/* ✅ TOP BANNER */}
         <div className="mb-3">
-          <AdWrapper type="top" />
+          <TopBanner />
         </div>
 
         {/* Back Button */}
@@ -417,12 +420,11 @@ export default function AudioPlayerPage() {
                 <p className="text-sm font-semibold text-purple-600 text-center mb-2">
                   ⭐ Milestone Audio Completed!
                 </p>
-                <AdWrapper type="native" />
+                <NativeBanner />
               </div>
-              <AdWrapper 
-                type="smartlink"
+              <SmartlinkButton 
                 smartlinkUrl={SMARTLINK_URL}
-                onSmartlinkComplete={handleSmartlinkComplete}
+                onComplete={handleSmartlinkComplete}
                 buttonText="Continue to Next Audio"
               />
             </div>
@@ -456,12 +458,12 @@ export default function AudioPlayerPage() {
           )}
         </div>
 
-        {/* ❌ BOTTOM AD - Removed */}
-        {/* <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
+        {/* ✅ BOTTOM BANNER */}
+        <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
-            <AdWrapper type="bottom" />
+            <BottomBanner />
           </div>
-        </div> */}
+        </div>
 
       </div>
     </div>

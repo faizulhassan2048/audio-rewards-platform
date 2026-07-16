@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Lock, ChevronRight } from 'lucide-react'
 import LevelProgress from '@/components/tasks/LevelProgress'
-import AdWrapper from '@/components/ads/AdWrapper'
+import TopBanner from '@/components/ads/TopBanner'
+import BottomBanner from '@/components/ads/BottomBanner'
 import { createClient } from '@/lib/supabase/client'
 
 interface StatusResponse {
@@ -94,8 +95,8 @@ export default function TasksHubPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto space-y-4">
 
-        {/* ✅ TOP AD */}
-        <AdWrapper type="top" />
+        {/* ✅ TOP BANNER */}
+        <TopBanner />
 
         {/* Header */}
         <div className="text-center py-2">
@@ -153,8 +154,8 @@ export default function TasksHubPage() {
           <GoldLevel unlocked={firstWithdrawalDone} />
         </div>
 
-        {/* ❌ BOTTOM AD - Removed */}
-        {/* <AdWrapper type="bottom" /> */}
+        {/* ✅ BOTTOM BANNER */}
+        <BottomBanner />
 
       </div>
     </div>
