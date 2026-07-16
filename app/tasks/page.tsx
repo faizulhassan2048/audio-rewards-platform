@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Lock, ChevronRight } from 'lucide-react'
 import LevelProgress from '@/components/tasks/LevelProgress'
-import AdBanner from '@/components/ads/AdBanner'
+import AdWrapper from '@/components/ads/AdWrapper'
 import { createClient } from '@/lib/supabase/client'
 
 interface StatusResponse {
@@ -24,9 +24,6 @@ export default function TasksHubPage() {
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [firstWithdrawalDone, setFirstWithdrawalDone] = useState(false)
   const [countdown, setCountdown] = useState('')
-
-  // ✅ Unique key for tasks page ads
-  const [adKey] = useState(() => `tasks-${Date.now()}`);
 
   const fetchStatus = useCallback(async (isBackgroundRefresh = false) => {
     try {
@@ -97,14 +94,8 @@ export default function TasksHubPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto space-y-4">
 
-        {/* ✅ TOP AD - Unique key for tasks page */}
-        <div className="w-full">
-          <AdBanner 
-            key={`tasks-top-${adKey}`}
-            position="top" 
-            refreshKey={`${adKey}-top`}
-          />
-        </div>
+        {/* ✅ TOP AD */}
+        <AdWrapper type="top" />
 
         {/* Header */}
         <div className="text-center py-2">
@@ -162,14 +153,8 @@ export default function TasksHubPage() {
           <GoldLevel unlocked={firstWithdrawalDone} />
         </div>
 
-        {/* ✅ BOTTOM AD - Unique key for tasks page */}
-        <div className="pt-2">
-          <AdBanner 
-            key={`tasks-bottom-${adKey}`}
-            position="bottom" 
-            refreshKey={`${adKey}-bottom`}
-          />
-        </div>
+        {/* ✅ BOTTOM AD */}
+        <AdWrapper type="bottom" />
       </div>
     </div>
   )

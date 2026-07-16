@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import AdBanner from '@/components/ads/AdBanner';
+import AdWrapper from '@/components/ads/AdWrapper';
 
 interface AudioData {
   id: string;
@@ -16,6 +16,10 @@ interface AudioData {
   index: number;
   total: number;
 }
+
+// ✅ Milestones where Native + Smartlink appear
+const MILESTONES = [5, 10, 15];
+const SMARTLINK_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
 
 export default function AudioPlayerPage() {
   const router = useRouter();
@@ -32,17 +36,19 @@ export default function AudioPlayerPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [audioLoaded, setAudioLoaded] = useState(false);
-  
-  // ✅ Generate unique ad key for each audio
-  const [adRefreshToken, setAdRefreshToken] = useState(Date.now());
+  const [isMilestone, setIsMilestone] = useState(false);
+  const [smartlinkComplete, setSmartlinkComplete] = useState(false);
+  const [showContinueButton, setShowContinueButton] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // ✅ Update ad key when audioId changes
+  // ✅ Check if this is a milestone from URL
   useEffect(() => {
-    setAdRefreshToken(Date.now());
-  }, [audioId]);
+    const params = new URLSearchParams(window.location.search);
+    const milestone = params.get('milestone') === 'true';
+    setIsMilestone(milestone);
+  }, []);
 
   // Fetch audio data and create session - PARALLEL
   useEffect(() => {
@@ -187,19 +193,19 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      if (data.smartlink_milestone) {
-        toast.info(`📢 Smartlink ad required for audio ${data.smartlink_milestone}`);
-        setTimeout(() => {
-          router.push(`/tasks/bronze?smartlink=${data.smartlink_milestone}&next=${data.next_audio?.id || ''}`);
-        }, 1500);
+      // ✅ For milestones, show continue button (Smartlink handled by frontend)
+      if (isMilestone) {
+        setShowContinueButton(true);
+        setIsSubmitting(false);
         return;
       }
 
+      // ✅ Normal audio: go to next audio
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
         setTimeout(() => {
-          router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
+          router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}&milestone=${MILESTONES.includes(nextIndex)}`);
         }, 1000);
       } else {
         router.push('/tasks/bronze');
@@ -211,6 +217,20 @@ export default function AudioPlayerPage() {
       setAudioComplete(false);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // ✅ Handle Smartlink Complete
+  const handleSmartlinkComplete = () => {
+    setSmartlinkComplete(true);
+    setShowContinueButton(false);
+    
+    // ✅ Go to next audio after smartlink
+    const nextIndex = (audio?.index || 0) + 1;
+    if (nextIndex <= (audio?.total || 15)) {
+      router.push(`/tasks/audio/${audio?.id}?index=${nextIndex}&total=${audio?.total || 15}&milestone=${MILESTONES.includes(nextIndex)}`);
+    } else {
+      router.push('/tasks/bronze');
     }
   };
 
@@ -262,20 +282,13 @@ export default function AudioPlayerPage() {
     );
   }
 
-  // ✅ Unique keys for ads
-  const adKey = `audio-${audioId}-${adRefreshToken}`;
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP AD - Unique key for each audio */}
+        {/* ✅ TOP AD */}
         <div className="mb-3">
-          <AdBanner 
-            key={`top-${adKey}`}
-            position="top" 
-            refreshKey={`${adKey}-top`}
-          />
+          <AdWrapper type="top" />
         </div>
 
         {/* Back Button */}
@@ -397,13 +410,29 @@ export default function AudioPlayerPage() {
             </div>
           </div>
 
-          {/* Audio Complete Status */}
-          {audioComplete && (
-            <div className="mt-4 space-y-3">
-              <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-center">
-                <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
-                <p className="text-xs text-green-600">Moving to next audio...</p>
+          {/* ✅ Milestone: Native Banner + Smartlink Button */}
+          {isMilestone && audioComplete && !smartlinkComplete && (
+            <div className="mt-4 space-y-4">
+              <div className="border-t border-gray-200 pt-4">
+                <p className="text-sm font-semibold text-purple-600 text-center mb-2">
+                  ⭐ Milestone Audio Completed!
+                </p>
+                <AdWrapper type="native" />
               </div>
+              <AdWrapper 
+                type="smartlink"
+                smartlinkUrl={SMARTLINK_URL}
+                onSmartlinkComplete={handleSmartlinkComplete}
+                buttonText="Continue to Next Audio"
+              />
+            </div>
+          )}
+
+          {/* ✅ Normal Audio Complete */}
+          {audioComplete && !isMilestone && (
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl text-center">
+              <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
+              <p className="text-xs text-green-600">Moving to next audio...</p>
             </div>
           )}
 
@@ -427,14 +456,10 @@ export default function AudioPlayerPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM AD - Unique key for each audio */}
+        {/* ✅ BOTTOM AD */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
-            <AdBanner 
-              key={`bottom-${adKey}`}
-              position="bottom" 
-              refreshKey={`${adKey}-bottom`}
-            />
+            <AdWrapper type="bottom" />
           </div>
         </div>
       </div>

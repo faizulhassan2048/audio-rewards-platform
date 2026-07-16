@@ -36,7 +36,6 @@ export async function GET() {
   }
 
   // ── Fixed daily reset (midnight PKT) ─────────────────────────────
-  // Still locked — show the countdown to the next midnight.
   if (level.locked_until && new Date(level.locked_until) > now) {
     return NextResponse.json({
       locked: true,
@@ -74,9 +73,6 @@ export async function GET() {
   }
 
   // ── AD GATE ──────────────────────────────────────────────────────
-  // As long as pending_ad_milestone is set in the DB, we never return a
-  // current_audio, no matter how many times the page is refreshed or the
-  // tab is reopened. The client is forced back into the ad flow.
   if (level.pending_ad_milestone) {
     return NextResponse.json({
       locked: false,
@@ -89,9 +85,55 @@ export async function GET() {
     })
   }
 
-  // Level complete — waiting for claim (claim route sets locked_until to
-  // next midnight PKT right after crediting the reward).
+  // ✅ AUTO-NEXT ROUND: Level complete and reward claimed → reset immediately
   if (level.completed_audios >= level.total_audios) {
+    // If reward is claimed, auto-reset for next round
+    if (level.reward_claimed) {
+      const audioIds = await pickAudioPool(supabase)
+      const { data: reset, error } = await supabase
+        .from('user_levels')
+        .update({
+          audio_ids: audioIds,
+          total_audios: audioIds.length || TOTAL_AUDIOS,
+          completed_audio_ids: [],
+          completed_audios: 0,
+          reward_claimed: false,
+          completed_at: null,
+          locked_until: null,
+          pending_ad_milestone: null,
+          ad_session_started_at: null,
+          ad_milestones_unlocked: [],
+          bonus_claimed: false,
+        })
+        .eq('id', level.id)
+        .select('*')
+        .single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      level = reset
+      
+      // Now get first audio of new round
+      const firstAudioId = level.audio_ids?.[0]
+      let audio = null
+      if (firstAudioId) {
+        const { data: audioRow } = await supabase
+          .from('audios')
+          .select('id, title, audio_url, thumbnail_url, duration_seconds')
+          .eq('id', firstAudioId)
+          .maybeSingle()
+        audio = audioRow
+      }
+
+      return NextResponse.json({
+        locked: false,
+        level_complete: false,
+        level_name: level.level_name,
+        completed_audios: 0,
+        total_audios: level.total_audios,
+        current_audio: audio,
+      })
+    }
+
+    // Level complete but reward not claimed yet
     return NextResponse.json({
       locked: false,
       level_complete: true,
@@ -116,7 +158,6 @@ export async function GET() {
   }
 
   if (!currentAudioId || !audio) {
-    // Stale/missing audio pool — rebuild it from currently active audios
     const freshAudioIds = await pickAudioPool(supabase)
 
     const { data: refreshed, error } = await supabase

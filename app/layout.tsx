@@ -30,10 +30,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        {/* ✅ Global Monetag script yahan se hata diya gaya hai.
-            Ab ad sirf jahan <AdBanner /> component call hoga wahi load hoga
-            (Tasks, Bronze, aur jahan bhi tum aage add karo) */}
-
         <main className="pb-20 sm:pb-24">
           {children}
         </main>

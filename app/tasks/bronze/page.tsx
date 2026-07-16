@@ -7,8 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LevelProgress from '@/components/tasks/LevelProgress';
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal';
-import AdModal from '@/components/audio/AdModal';
-import AdBanner from '@/components/ads/AdBanner';
+import AdWrapper from '@/components/ads/AdWrapper';
 
 interface StatusResponse {
   locked: boolean;
@@ -33,21 +32,18 @@ interface StatusResponse {
 const REWARD_COINS = 45;
 const BONUS_COINS = 10;
 
+// ✅ Milestones where Native + Smartlink appear
+const MILESTONES = [5, 10, 15];
+
 export default function BronzeLevelPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [showAd, setShowAd] = useState(false);
-  const [adMilestone, setAdMilestone] = useState<number | null>(null);
-  const [adClaiming, setAdClaiming] = useState(false);
-  const [adError, setAdError] = useState<string | null>(null);
   const [showComplete, setShowComplete] = useState(false);
   const [countdown, setCountdown] = useState('');
 
-  // ✅ Unique key for bronze page ads
-  const [adKey] = useState(() => `bronze-${Date.now()}`);
-
   const pendingClaimRef = useRef(false);
+  const isResetting = useRef(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -60,20 +56,20 @@ export default function BronzeLevelPage() {
       const statusData: StatusResponse = await res.json();
       setStatus(statusData);
 
-      // ✅ Check if ad required (5, 10, 15 all full ad)
-      if (statusData.ad_required && statusData.milestone) {
-        setAdMilestone(statusData.milestone);
-        setShowAd(true);
-        setAdError(null);
-      } else {
-        setShowAd(false);
-        setAdMilestone(null);
-      }
-
-      // Check if level complete
+      // ✅ Auto-claim reward when level complete
       if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
         pendingClaimRef.current = true;
         await claimReward();
+      }
+
+      // ✅ If level complete and reward claimed, page will auto-reset via status API
+      if (statusData.level_complete && statusData.reward_claimed) {
+        if (!isResetting.current) {
+          isResetting.current = true;
+          setTimeout(() => {
+            window.location.reload();
+          }, 500);
+        }
       }
     } catch (err) {
       console.error('fetchStatus error:', err);
@@ -86,23 +82,6 @@ export default function BronzeLevelPage() {
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
-
-  // ✅ Check for ad from URL params (for 5, 10, 15)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const ad = params.get('ad');
-    const complete = params.get('complete');
-    
-    if (ad) {
-      setAdMilestone(parseInt(ad));
-      setShowAd(true);
-    }
-    
-    if (complete === 'true') {
-      // Level complete - fetch status to trigger claim
-      fetchStatus();
-    }
-  }, []);
 
   useEffect(() => {
     if (!status?.locked || !status.locked_until) return;
@@ -126,7 +105,9 @@ export default function BronzeLevelPage() {
         toast.error(data.error || 'Could not claim your reward');
         return;
       }
-      if (data.success) setShowComplete(true);
+      if (data.success) {
+        setShowComplete(true);
+      }
     } catch {
       toast.error('Network error while claiming reward');
     } finally {
@@ -134,33 +115,15 @@ export default function BronzeLevelPage() {
     }
   };
 
-  const handleAdClaim = async () => {
-    setAdClaiming(true);
-    setAdError(null);
-    try {
-      const res = await fetch('/api/tasks/level/ads/verify', { method: 'POST' });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setAdError(data.error || 'Could not verify ad. Please try again.');
-        return;
-      }
-
-      setShowAd(false);
-      setAdMilestone(null);
-
-      if (data.isFinalMilestone) {
-        await claimReward();
-      } else {
-        toast.success('Ad complete! Continue to next audio.');
-      }
-      await fetchStatus();
-    } catch {
-      setAdError('Network error, your progress is safe, just tap Retry.');
-    } finally {
-      setAdClaiming(false);
-    }
+  const handleCompleteClose = () => {
+    setShowComplete(false);
+    window.location.reload();
   };
+
+  // ✅ Check if current audio is a milestone
+  const isMilestone = status?.current_audio
+    ? MILESTONES.includes(status.completed_audios + 1)
+    : false;
 
   if (loading) {
     return (
@@ -174,19 +137,13 @@ export default function BronzeLevelPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto space-y-4">
 
-        {/* Back Button */}
         <Link href="/tasks" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6C63FF]">
           <ArrowLeft className="w-4 h-4" /> Back to Levels
         </Link>
 
-        {/* ✅ TOP AD - Unique key for bronze page */}
-        <AdBanner 
-          key={`bronze-top-${adKey}`}
-          position="top" 
-          refreshKey={`${adKey}-top`}
-        />
+        {/* ✅ TOP AD */}
+        <AdWrapper type="top" />
 
-        {/* Level Progress */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
           <LevelProgress
             levelName="Bronze"
@@ -195,7 +152,6 @@ export default function BronzeLevelPage() {
           />
         </div>
 
-        {/* Locked Status */}
         {status?.locked && (
           <div className="bg-white rounded-2xl border border-amber-100 p-6 text-center">
             <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-50 flex items-center justify-center text-2xl">
@@ -208,13 +164,16 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* Current Audio - Play Button */}
-        {!status?.locked && status?.current_audio && !showAd && (
+        {!status?.locked && status?.current_audio && (
           <button
             onClick={() => {
               const audio = status.current_audio;
               if (audio) {
-                router.push(`/tasks/audio/${audio.id}?index=${status.completed_audios + 1}&total=${status.total_audios}`);
+                // ✅ Pass milestone info to audio page
+                const isMilestone = MILESTONES.includes(status.completed_audios + 1);
+                router.push(
+                  `/tasks/audio/${audio.id}?index=${status.completed_audios + 1}&total=${status.total_audios}&milestone=${isMilestone}`
+                );
               }
             }}
             className="w-full bg-white rounded-2xl shadow-lg border border-gray-100 p-6 hover:shadow-xl transition-all group"
@@ -224,7 +183,9 @@ export default function BronzeLevelPage() {
                 <PlayCircle className="w-8 h-8 text-white" />
               </div>
               <div className="flex-1 text-left">
-                <p className="text-sm text-gray-500">Next Audio</p>
+                <p className="text-sm text-gray-500">
+                  {isMilestone ? '⭐ Milestone Audio' : 'Next Audio'}
+                </p>
                 <h3 className="font-bold text-gray-800">
                   Audio {status.completed_audios + 1}/{status.total_audios}
                 </h3>
@@ -239,41 +200,25 @@ export default function BronzeLevelPage() {
           </button>
         )}
 
-        {/* No Audio Available */}
-        {!status?.locked && !status?.current_audio && !status?.level_complete && !showAd && (
+        {!status?.locked && !status?.current_audio && !status?.level_complete && (
           <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-6 text-center">
             <p className="text-sm text-gray-500">Loading next audio...</p>
           </div>
         )}
 
-        {/* ✅ BOTTOM AD - Unique key for bronze page */}
+        {/* ✅ BOTTOM AD */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
-            <AdBanner 
-              key={`bronze-bottom-${adKey}`}
-              position="bottom" 
-              refreshKey={`${adKey}-bottom`}
-            />
+            <AdWrapper type="bottom" />
           </div>
         </div>
       </div>
 
-      {/* ✅ Full Ad Modal (for 5, 10, 15) */}
-      {showAd && (
-        <AdModal
-          onFinished={handleAdClaim}
-          rewardCoins={adMilestone === 15 ? REWARD_COINS : 0}
-          claiming={adClaiming}
-          errorMessage={adError}
-        />
-      )}
-
-      {/* ✅ Level Complete Modal (with Bonus) */}
       {showComplete && (
         <LevelCompleteModal
           rewardCoins={REWARD_COINS}
           bonusCoins={BONUS_COINS}
-          onClose={() => { setShowComplete(false); fetchStatus(); }}
+          onClose={handleCompleteClose}
         />
       )}
     </div>
