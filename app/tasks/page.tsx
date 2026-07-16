@@ -235,3 +235,4 @@ function GoldLevel({ unlocked }: { unlocked: boolean }) {
     </div>
   )
 }
+
