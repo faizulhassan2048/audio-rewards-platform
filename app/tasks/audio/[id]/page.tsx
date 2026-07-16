@@ -41,9 +41,13 @@ export default function AudioPlayerPage() {
   const [isMilestone, setIsMilestone] = useState(false);
   const [smartlinkComplete, setSmartlinkComplete] = useState(false);
   const [showContinueButton, setShowContinueButton] = useState(false);
+  const [tabWarning, setTabWarning] = useState(false);
+  const [volumeWarning, setVolumeWarning] = useState(false);
+  const [pausedBySystem, setPausedBySystem] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
+  const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
 
   // ✅ Check if this is a milestone from URL
   useEffect(() => {
@@ -51,6 +55,81 @@ export default function AudioPlayerPage() {
     const milestone = params.get('milestone') === 'true';
     setIsMilestone(milestone);
   }, []);
+
+  // ✅ Tab visibility detection - Pause audio when user switches tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // ✅ User switched tab → Pause audio
+        if (audioRef.current && isPlaying) {
+          audioRef.current.pause();
+          setIsPlaying(false);
+          setTabWarning(true);
+          setPausedBySystem(true);
+          toast.warning('⏸️ Audio paused! Please stay on this tab to earn rewards.', {
+            duration: 3000,
+          });
+        }
+      } else {
+        setTabWarning(false);
+        setPausedBySystem(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isPlaying]);
+
+  // ✅ Window blur detection - Pause audio when user switches window
+  useEffect(() => {
+    const handleBlur = () => {
+      if (audioRef.current && isPlaying) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+        setTabWarning(true);
+        setPausedBySystem(true);
+      }
+    };
+
+    const handleFocus = () => {
+      setTabWarning(false);
+      setPausedBySystem(false);
+    };
+
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isPlaying]);
+
+  // ✅ Volume check (15% minimum)
+  useEffect(() => {
+    volumeCheckInterval.current = setInterval(() => {
+      if (!audioRef.current || audioComplete) return;
+      const isBelowMin = audioRef.current.volume < 0.15 || audioRef.current.muted;
+      if (isBelowMin) {
+        setVolumeWarning(true);
+        // ✅ Pause if volume too low
+        if (isPlaying) {
+          audioRef.current.pause();
+          setIsPlaying(false);
+          setPausedBySystem(true);
+          toast.warning('🔊 Volume too low! Please increase volume above 15% to continue.', {
+            duration: 3000,
+          });
+        }
+      } else {
+        setVolumeWarning(false);
+      }
+    }, 3000);
+    return () => {
+      if (volumeCheckInterval.current) clearInterval(volumeCheckInterval.current);
+    };
+  }, [isPlaying, audioComplete]);
 
   // Fetch audio data and create session - PARALLEL
   useEffect(() => {
@@ -60,7 +139,6 @@ export default function AudioPlayerPage() {
         const index = parseInt(params.get('index') || '1');
         const total = parseInt(params.get('total') || '15');
 
-        // ✅ Parallel fetch for better performance
         const [sessionRes, audioRes] = await Promise.all([
           fetch('/api/audio/session', {
             method: 'POST',
@@ -88,7 +166,6 @@ export default function AudioPlayerPage() {
             total: total
           });
         } else if (audioUrl) {
-          // Fallback if audio API fails but session has URL
           setAudio({
             id: audioId,
             title: `Audio ${index}`,
@@ -153,7 +230,6 @@ export default function AudioPlayerPage() {
     setIsSubmitting(true);
     setAudioComplete(true);
     
-    // Send final heartbeat
     if (sessionToken) {
       await fetch('/api/audio/heartbeat', {
         method: 'POST',
@@ -190,7 +266,6 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // ✅ Level complete (audio 15)
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
         setTimeout(() => {
@@ -199,14 +274,12 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // ✅ For milestones (5, 10, 15) - show continue button
       if (isMilestone) {
         setShowContinueButton(true);
         setIsSubmitting(false);
         return;
       }
 
-      // ✅ Normal audio: go to next audio
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
@@ -226,12 +299,11 @@ export default function AudioPlayerPage() {
     }
   };
 
-  // ✅ Handle Smartlink Complete (milestone)
+  // ✅ Handle Smartlink Complete
   const handleSmartlinkComplete = () => {
     setSmartlinkComplete(true);
     setShowContinueButton(false);
     
-    // ✅ Go to next audio after smartlink
     const nextIndex = (audio?.index || 0) + 1;
     if (nextIndex <= (audio?.total || 15)) {
       const isNextMilestone = MILESTONES.includes(nextIndex);
@@ -245,6 +317,13 @@ export default function AudioPlayerPage() {
   const togglePlay = async () => {
     if (!audioRef.current || audioComplete) return;
 
+    // ✅ If paused by system (tab switch or low volume), allow user to resume
+    if (pausedBySystem) {
+      setPausedBySystem(false);
+      setTabWarning(false);
+      setVolumeWarning(false);
+    }
+
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
@@ -252,8 +331,15 @@ export default function AudioPlayerPage() {
     }
 
     try {
+      // ✅ Check volume before playing
+      if (audioRef.current.volume < 0.15) {
+        audioRef.current.volume = 0.15;
+        setVolumeWarning(false);
+      }
+      
       await audioRef.current.play();
       setIsPlaying(true);
+      setTabWarning(false);
     } catch (error) {
       console.error('Play error:', error);
       toast.error('Could not play audio');
@@ -305,6 +391,16 @@ export default function AudioPlayerPage() {
         >
           <ArrowLeft className="w-4 h-4" /> Back to Level
         </Link>
+
+        {/* ✅ Tab/Volume Warning */}
+        {(tabWarning || volumeWarning) && (
+          <div className={`mb-3 px-4 py-2 rounded-lg text-sm font-medium ${
+            tabWarning ? 'bg-red-50 border border-red-200 text-red-700' : ''
+          } ${volumeWarning ? 'bg-yellow-50 border border-yellow-200 text-yellow-700' : ''}`}>
+            {tabWarning && '⚠️ Audio paused! Please stay on this tab.'}
+            {volumeWarning && '🔊 Volume too low! Please increase above 15%.'}
+          </div>
+        )}
 
         {/* Progress Info */}
         <div className="flex items-center justify-between text-sm mb-1.5">
@@ -405,7 +501,7 @@ export default function AudioPlayerPage() {
           <div className="mt-4 space-y-1.5 text-xs bg-gray-50 rounded-xl p-3.5">
             <div className="flex items-center gap-2 text-gray-600">
               <AlertCircle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              <span>Listen without switching tabs</span>
+              <span>Stay on this tab while listening</span>
             </div>
             <div className="flex items-center gap-2 text-gray-600">
               <Volume2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
