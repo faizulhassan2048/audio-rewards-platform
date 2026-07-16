@@ -32,7 +32,6 @@ interface StatusResponse {
 
 const REWARD_COINS = 45;
 const BONUS_COINS = 10;
-
 const MILESTONES = [5, 10, 15];
 
 export default function BronzeLevelPage() {
@@ -55,6 +54,11 @@ export default function BronzeLevelPage() {
       }
       const statusData: StatusResponse = await res.json();
       setStatus(statusData);
+
+      if (statusData.ad_required && statusData.milestone) {
+        // ✅ Store timestamp for auto-complete check
+        sessionStorage.setItem('last_ad_shown', Date.now().toString());
+      }
 
       if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
         pendingClaimRef.current = true;
@@ -138,7 +142,6 @@ export default function BronzeLevelPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Levels
         </Link>
 
-        {/* ✅ TOP BANNER - 300x250 */}
         <TopBanner />
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
@@ -201,7 +204,6 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ✅ BOTTOM BANNER - 320x50 (Fixed at bottom) */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
           <div className="max-w-md mx-auto px-4 pointer-events-auto">
             <BottomBanner />

@@ -28,6 +28,7 @@ export async function GET() {
         level_name: LEVEL_NAME,
         total_audios: audioIds.length || TOTAL_AUDIOS,
         audio_ids: audioIds,
+        pending_ad_milestone_timestamp: null,
       })
       .select('*')
       .single()
@@ -47,7 +48,7 @@ export async function GET() {
     })
   }
 
-  // Midnight has passed — reset for the new day and pick a fresh audio pool.
+  // Midnight has passed — reset for the new day
   if (level.locked_until && new Date(level.locked_until) <= now) {
     const audioIds = await pickAudioPool(supabase)
     const { data: reset, error } = await supabase
@@ -64,12 +65,42 @@ export async function GET() {
         ad_session_started_at: null,
         ad_milestones_unlocked: [],
         bonus_claimed: false,
+        pending_ad_milestone_timestamp: null,
       })
       .eq('id', level.id)
       .select('*')
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     level = reset
+  }
+
+  // ── ✅ AUTO-UNLOCK STUCK MILESTONES ──────────────────────────────
+  // If pending_ad_milestone is set and timestamp is older than 30 seconds
+  if (level.pending_ad_milestone && level.pending_ad_milestone_timestamp) {
+    const pendingTime = new Date(level.pending_ad_milestone_timestamp).getTime()
+    const elapsed = (Date.now() - pendingTime) / 1000
+    
+    // ✅ Auto-unlock after 30 seconds
+    if (elapsed > 30) {
+      console.log(`⏰ Auto-unlocking milestone ${level.pending_ad_milestone} after ${elapsed}s`)
+      const milestone = level.pending_ad_milestone
+      const unlocked = Array.from(new Set([...(level.ad_milestones_unlocked || []), milestone]))
+      
+      const { error: updateErr } = await supabase
+        .from('user_levels')
+        .update({
+          pending_ad_milestone: null,
+          ad_milestones_unlocked: unlocked,
+          pending_ad_milestone_timestamp: null,
+        })
+        .eq('id', level.id)
+      
+      if (!updateErr) {
+        level.pending_ad_milestone = null
+        level.ad_milestones_unlocked = unlocked
+        level.pending_ad_milestone_timestamp = null
+      }
+    }
   }
 
   // ── AD GATE ──────────────────────────────────────────────────────
@@ -87,7 +118,6 @@ export async function GET() {
 
   // ✅ AUTO-NEXT ROUND: Level complete and reward claimed → reset immediately
   if (level.completed_audios >= level.total_audios) {
-    // If reward is claimed, auto-reset for next round
     if (level.reward_claimed) {
       const audioIds = await pickAudioPool(supabase)
       const { data: reset, error } = await supabase
@@ -104,6 +134,7 @@ export async function GET() {
           ad_session_started_at: null,
           ad_milestones_unlocked: [],
           bonus_claimed: false,
+          pending_ad_milestone_timestamp: null,
         })
         .eq('id', level.id)
         .select('*')
@@ -111,7 +142,6 @@ export async function GET() {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
       level = reset
       
-      // Now get first audio of new round
       const firstAudioId = level.audio_ids?.[0]
       let audio = null
       if (firstAudioId) {
@@ -133,7 +163,6 @@ export async function GET() {
       })
     }
 
-    // Level complete but reward not claimed yet
     return NextResponse.json({
       locked: false,
       level_complete: true,
@@ -167,6 +196,7 @@ export async function GET() {
         total_audios: freshAudioIds.length || TOTAL_AUDIOS,
         completed_audio_ids: [],
         completed_audios: 0,
+        pending_ad_milestone_timestamp: null,
       })
       .eq('id', level.id)
       .select('*')

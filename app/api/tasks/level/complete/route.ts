@@ -5,7 +5,6 @@ import { createClient } from '@/lib/supabase/server'
 const LEVEL_NAME = 'bronze'
 const TOTAL_AUDIOS = 15
 
-// ✅ ALL milestones (5, 10, 15) get Full Ad
 const FULL_AD_MILESTONES = [5, 10, 15]
 const SMARTLINK_MILESTONES: number[] = []
 
@@ -114,6 +113,7 @@ export async function POST(req: Request) {
 
   if (hitFullAdMilestone) {
     updatePayload.pending_ad_milestone = newCompletedCount
+    updatePayload.pending_ad_milestone_timestamp = new Date().toISOString()
     if (isLevelComplete) {
       updatePayload.completed_at = new Date().toISOString()
     }
