@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { ChevronRight, Clock, ExternalLink, AlertCircle, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface SmartlinkButtonProps {
   smartlinkUrl: string;
@@ -24,19 +25,43 @@ export default function SmartlinkButton({
   const [isError, setIsError] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
   const [showRetry, setShowRetry] = useState(false);
+  const [autoCompleteTriggered, setAutoCompleteTriggered] = useState(false);
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoCompleteRef = useRef<NodeJS.Timeout | null>(null);
   const maxRetries = 3;
   const totalSeconds = 15;
+  const AUTO_COMPLETE_TIMEOUT = 30000; // ✅ 30 seconds
 
-  // ✅ Cleanup timer on unmount
+  // ✅ Cleanup on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
     };
   }, []);
 
-  // ✅ Handle tab visibility change - PAUSE timer when user switches tab
+  // ✅ Auto-complete after 30 seconds if user is stuck
+  useEffect(() => {
+    if (isClicked && !isTimerComplete && secondsLeft > 0 && !autoCompleteTriggered) {
+      autoCompleteRef.current = setTimeout(() => {
+        if (!isTimerComplete && secondsLeft > 0) {
+          console.log('⏰ Auto-completing smartlink after 30s timeout');
+          setAutoCompleteTriggered(true);
+          setSecondsLeft(0);
+          setIsTimerComplete(true);
+          if (timerRef.current) clearInterval(timerRef.current);
+          toast.success('✅ Ad completed automatically. Continuing...');
+        }
+      }, AUTO_COMPLETE_TIMEOUT);
+      
+      return () => {
+        if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
+      };
+    }
+  }, [isClicked, isTimerComplete, secondsLeft, autoCompleteTriggered]);
+
+  // ✅ Handle tab visibility change
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -47,7 +72,6 @@ export default function SmartlinkButton({
         }
       } else {
         setIsPaused(false);
-        // Resume timer if not complete
         if (isClicked && !isTimerComplete && secondsLeft > 0) {
           startTimer();
         }
@@ -66,14 +90,12 @@ export default function SmartlinkButton({
     
     timerRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
-        if (document.hidden) {
-          // ✅ Pause if tab is hidden
-          return prev;
-        }
+        if (document.hidden) return prev;
         if (prev <= 1) {
           clearInterval(timerRef.current!);
           timerRef.current = null;
           setIsTimerComplete(true);
+          if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
           return 0;
         }
         return prev - 1;
@@ -86,10 +108,8 @@ export default function SmartlinkButton({
     if (isClicked) return;
 
     try {
-      // ✅ Open Smartlink in new tab
       const newWindow = window.open(smartlinkUrl, '_blank', 'noopener');
       
-      // ✅ If popup blocked or ad blocker detected
       if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
         console.warn('⚠️ Popup blocked or ad blocker detected');
         setIsError(true);
@@ -102,6 +122,7 @@ export default function SmartlinkButton({
       setIsTimerComplete(false);
       setIsError(false);
       setShowRetry(false);
+      setAutoCompleteTriggered(false);
       startTimer();
 
     } catch (error) {
@@ -114,7 +135,6 @@ export default function SmartlinkButton({
   // ✅ Handle Retry
   const handleRetry = () => {
     if (retryCount >= maxRetries) {
-      // ✅ After max retries, use fallback - auto-complete
       setIsFallback(true);
       setShowRetry(false);
       setIsError(false);
@@ -129,13 +149,12 @@ export default function SmartlinkButton({
     setShowRetry(false);
     setIsClicked(false);
     
-    // ✅ Auto-retry after 2 seconds
     setTimeout(() => {
       handleClick();
     }, 1000);
   };
 
-  // ✅ Handle Fallback - Auto complete after 5 seconds
+  // ✅ Handle Fallback
   useEffect(() => {
     if (isFallback) {
       const fallbackTimer = setTimeout(() => {
@@ -145,17 +164,15 @@ export default function SmartlinkButton({
     }
   }, [isFallback, onComplete]);
 
-  // ✅ Handle Continue after timer complete
+  // ✅ Handle Continue
   const handleContinue = () => {
     if (isTimerComplete) {
+      if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
       onComplete();
     }
   };
 
-  // ✅ Check if timer should be paused
   const isTimerPaused = isPaused && isClicked && !isTimerComplete && secondsLeft > 0;
-
-  // ✅ Calculate progress
   const progress = ((totalSeconds - secondsLeft) / totalSeconds) * 100;
 
   // ✅ Show error state with retry
@@ -188,7 +205,7 @@ export default function SmartlinkButton({
     );
   }
 
-  // ✅ Show fallback state (after max retries)
+  // ✅ Show fallback state
   if (isFallback) {
     return (
       <div className={`w-full ${className}`}>
@@ -207,40 +224,9 @@ export default function SmartlinkButton({
     );
   }
 
-  // ✅ Show error state with retry
-  if (isError && showRetry) {
-    return (
-      <div className={`w-full ${className}`}>
-        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            <span className="font-semibold text-red-700">
-              Ad couldn't load. Please try again.
-            </span>
-          </div>
-          <p className="text-xs text-red-500 mb-3">
-            {retryCount >= maxRetries 
-              ? 'Max retries reached. Continuing automatically...' 
-              : `Attempt ${retryCount + 1}/${maxRetries}`}
-          </p>
-          {retryCount < maxRetries && (
-            <button
-              onClick={handleRetry}
-              className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2 mx-auto"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Retry ({retryCount + 1}/{maxRetries})
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={`w-full ${className}`}>
       {!isClicked ? (
-        // ✅ Initial Button
         <button
           onClick={handleClick}
           className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3"
@@ -250,7 +236,6 @@ export default function SmartlinkButton({
           <ChevronRight className="w-5 h-5" />
         </button>
       ) : !isTimerComplete ? (
-        // ✅ Timer Running State
         <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
             <Clock className="w-5 h-5 text-amber-600 animate-pulse" />
@@ -269,7 +254,6 @@ export default function SmartlinkButton({
             </div>
           </div>
           
-          {/* ✅ Timer Paused Warning */}
           {isTimerPaused && (
             <p className="text-xs text-red-500 mt-2 font-bold animate-pulse">
               ⚠️ Please come back to this tab! Timer is paused.
@@ -283,7 +267,6 @@ export default function SmartlinkButton({
           )}
         </div>
       ) : (
-        // ✅ Timer Complete - Continue Button
         <button
           onClick={handleContinue}
           className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3 animate-pulse"

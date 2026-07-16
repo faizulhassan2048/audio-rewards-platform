@@ -60,7 +60,6 @@ export default function AudioPlayerPage() {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        // ✅ User switched tab → Pause audio
         if (audioRef.current && isPlaying) {
           audioRef.current.pause();
           setIsPlaying(false);
@@ -82,7 +81,7 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying]);
 
-  // ✅ Window blur detection - Pause audio when user switches window
+  // ✅ Window blur detection
   useEffect(() => {
     const handleBlur = () => {
       if (audioRef.current && isPlaying) {
@@ -113,7 +112,6 @@ export default function AudioPlayerPage() {
       const isBelowMin = audioRef.current.volume < 0.15 || audioRef.current.muted;
       if (isBelowMin) {
         setVolumeWarning(true);
-        // ✅ Pause if volume too low
         if (isPlaying) {
           audioRef.current.pause();
           setIsPlaying(false);
@@ -131,7 +129,7 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // Fetch audio data and create session - PARALLEL
+  // ✅ Fetch audio data with SAFE JSON parsing
   useEffect(() => {
     const fetchAudio = async () => {
       try {
@@ -151,20 +149,26 @@ export default function AudioPlayerPage() {
         let token = null;
         let audioUrl = null;
         
+        // ✅ SAFE JSON parsing for session
         if (sessionRes.ok) {
-          const sessionData = await sessionRes.json();
+          const sessionText = await sessionRes.text();
+          const sessionData = sessionText ? JSON.parse(sessionText) : {};
           token = sessionData.session?.token || null;
           audioUrl = sessionData.session?.audio_url || null;
           setSessionToken(token);
         }
 
+        // ✅ SAFE JSON parsing for audio
         if (audioRes.ok) {
-          const data = await audioRes.json();
-          setAudio({
-            ...data,
-            index: index,
-            total: total
-          });
+          const audioText = await audioRes.text();
+          const data = audioText ? JSON.parse(audioText) : null;
+          if (data) {
+            setAudio({
+              ...data,
+              index: index,
+              total: total
+            });
+          }
         } else if (audioUrl) {
           setAudio({
             id: audioId,
@@ -224,7 +228,7 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // Handle audio complete
+  // ✅ Handle audio complete with SAFE JSON parsing
   const handleAudioComplete = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -252,7 +256,9 @@ export default function AudioPlayerPage() {
         }),
       });
       
-      const data = await res.json();
+      // ✅ SAFE JSON parsing
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
       
       if (!res.ok) {
         if (data.error === 'AD_REQUIRED') {
@@ -317,7 +323,6 @@ export default function AudioPlayerPage() {
   const togglePlay = async () => {
     if (!audioRef.current || audioComplete) return;
 
-    // ✅ If paused by system (tab switch or low volume), allow user to resume
     if (pausedBySystem) {
       setPausedBySystem(false);
       setTabWarning(false);
@@ -331,7 +336,6 @@ export default function AudioPlayerPage() {
     }
 
     try {
-      // ✅ Check volume before playing
       if (audioRef.current.volume < 0.15) {
         audioRef.current.volume = 0.15;
         setVolumeWarning(false);
@@ -402,7 +406,6 @@ export default function AudioPlayerPage() {
           </div>
         )}
 
-        {/* Progress Info */}
         <div className="flex items-center justify-between text-sm mb-1.5">
           <span className="text-gray-500">
             Audio <span className="font-semibold text-gray-700">{audio.index}</span> of <span className="font-semibold text-gray-700">{audio.total}</span>
@@ -412,7 +415,6 @@ export default function AudioPlayerPage() {
           </span>
         </div>
 
-        {/* Progress Bar */}
         <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-5">
           <div 
             className="h-full bg-gradient-to-r from-[#6C63FF] to-purple-500 transition-all duration-300 rounded-full"
@@ -420,10 +422,8 @@ export default function AudioPlayerPage() {
           />
         </div>
 
-        {/* Audio Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5">
           
-          {/* Thumbnail/Artwork */}
           <div className="aspect-video bg-gradient-to-br from-purple-100 to-indigo-100 rounded-xl mb-4 flex items-center justify-center relative overflow-hidden">
             {audio.thumbnail_url ? (
               <img 
@@ -438,7 +438,6 @@ export default function AudioPlayerPage() {
               </div>
             )}
             
-            {/* Play/Pause Overlay Button */}
             <button
               onClick={togglePlay}
               disabled={audioComplete}
@@ -455,7 +454,6 @@ export default function AudioPlayerPage() {
               </div>
             </button>
 
-            {/* Audio Complete Badge */}
             {audioComplete && (
               <div className="absolute bottom-3 left-3 bg-green-500 text-white text-xs px-3 py-1 rounded-full font-medium">
                 ✅ Complete
@@ -463,19 +461,16 @@ export default function AudioPlayerPage() {
             )}
           </div>
 
-          {/* Title */}
           <h2 className="text-lg font-bold text-gray-800 text-center mb-3">
             {audio.title || `Audio ${audio.index}`}
           </h2>
 
-          {/* Time Display */}
           <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
             <span>{formatTime(currentTime)}</span>
             <span className="text-gray-300">|</span>
             <span>{formatTime(duration)}</span>
           </div>
 
-          {/* Audio Player */}
           <audio
             ref={audioRef}
             src={audio.audio_url}
@@ -497,7 +492,6 @@ export default function AudioPlayerPage() {
             onCanPlay={() => setAudioLoaded(true)}
           />
 
-          {/* Instructions */}
           <div className="mt-4 space-y-1.5 text-xs bg-gray-50 rounded-xl p-3.5">
             <div className="flex items-center gap-2 text-gray-600">
               <AlertCircle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
@@ -513,7 +507,6 @@ export default function AudioPlayerPage() {
             </div>
           </div>
 
-          {/* ✅ Milestone: Native Banner + Smartlink Button */}
           {isMilestone && audioComplete && !smartlinkComplete && (
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
@@ -530,7 +523,6 @@ export default function AudioPlayerPage() {
             </div>
           )}
 
-          {/* ✅ Normal Audio Complete */}
           {audioComplete && !isMilestone && (
             <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl text-center">
               <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
@@ -538,7 +530,6 @@ export default function AudioPlayerPage() {
             </div>
           )}
 
-          {/* Play Button */}
           {!isPlaying && !audioComplete && audioLoaded && (
             <button
               onClick={togglePlay}
@@ -549,7 +540,6 @@ export default function AudioPlayerPage() {
             </button>
           )}
 
-          {/* Loading state */}
           {!audioLoaded && !audioComplete && (
             <div className="mt-4 w-full py-3 bg-gray-200 text-gray-500 rounded-xl font-semibold flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -558,7 +548,7 @@ export default function AudioPlayerPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM BANNER - 320x50 (Fixed at bottom) */}
+        {/* ✅ BOTTOM BANNER - 320x50 */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
           <div className="max-w-md mx-auto px-4 pointer-events-auto">
             <BottomBanner />
