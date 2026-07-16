@@ -1,88 +1,88 @@
-// 'use client';
+'use client';
 
-// import { useState, useEffect } from 'react';
-// import { useParams, useRouter } from 'next/navigation';
-// import Link from 'next/link';
-// import { createClient } from '@/lib/supabase/client';
-// import AudioPlayer from '@/components/audio/AudioPlayer';
-// import BackButton from '@/components/ui/BackButton';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
+import AudioPlayer from '@/components/audio/AudioPlayer';
+import BackButton from '@/components/ui/BackButton';
 
-// export default function AudioPlayerPage() {
-//   const params = useParams();
-//   const router = useRouter();
-//   const [audio, setAudio] = useState<any>(null);
-//   const [loading, setLoading] = useState(true);
-//   const supabase = createClient();
+export default function AudioPlayerPage() {
+  const params = useParams();
+  const router = useRouter();
+  const [audio, setAudio] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const supabase = createClient();
 
-//   useEffect(() => {
-//     loadAudio();
-//   }, []);
+  useEffect(() => {
+    loadAudio();
+  }, []);
 
-//   const loadAudio = async () => {
-//     const { data } = await supabase
-//       .from('audios')
-//       .select('*')
-//       .eq('id', params.id)
-//       .single();
+  const loadAudio = async () => {
+    const { data } = await supabase
+      .from('audios')
+      .select('*')
+      .eq('id', params.id)
+      .single();
     
-//     setAudio(data);
-//     setLoading(false);
-//   };
+    setAudio(data);
+    setLoading(false);
+  };
 
-//   const handleComplete = () => {
-//     alert('🎉 Audio completed! Reward will be credited.');
-//   };
+  const handleComplete = () => {
+    alert('🎉 Audio completed! Reward will be credited.');
+  };
 
-//   if (loading) {
-//     return (
-//       <div className="flex items-center justify-center min-h-screen">
-//         <div className="text-center">
-//           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-//           <p className="mt-4 text-gray-600">Loading audio...</p>
-//         </div>
-//       </div>
-//     );
-//   }
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading audio...</p>
+        </div>
+      </div>
+    );
+  }
 
-//   if (!audio) {
-//     return (
-//       <div className="max-w-2xl mx-auto p-8 text-center">
-//         <h1 className="text-2xl font-bold text-red-600">Audio not found</h1>
-//         <Link href="/audio" className="text-purple-600 hover:underline mt-4 inline-block">
-//           ← Back to audio list
-//         </Link>
-//       </div>
-//     );
-//   }
+  if (!audio) {
+    return (
+      <div className="max-w-2xl mx-auto p-8 text-center">
+        <h1 className="text-2xl font-bold text-red-600">Audio not found</h1>
+        <Link href="/audio" className="text-purple-600 hover:underline mt-4 inline-block">
+          ← Back to audio list
+        </Link>
+      </div>
+    );
+  }
 
-//   return (
-//     <div className="max-w-2xl mx-auto p-4 md:p-8">
-//       {/* Back Button */}
-//       <div className="flex items-center gap-3 mb-6">
-//         <BackButton />
-//         <h1 className="font-bold text-gray-900 text-lg">Audio Player</h1>
-//       </div>
+  return (
+    <div className="max-w-2xl mx-auto p-4 md:p-8">
+      {/* Back Button */}
+      <div className="flex items-center gap-3 mb-6">
+        <BackButton />
+        <h1 className="font-bold text-gray-900 text-lg">Audio Player</h1>
+      </div>
 
-//       {/* Audio Player */}
-//       <AudioPlayer
-//         audioId={audio.id}
-//         audioUrl={audio.audio_url}
-//         title={audio.title}
-//         duration={audio.duration_seconds}
-//         rewardCoins={audio.reward_coins}
-//         onComplete={handleComplete}
-//       />
+      {/* Audio Player */}
+      <AudioPlayer
+        audioId={audio.id}
+        audioUrl={audio.audio_url}
+        title={audio.title}
+        duration={audio.duration_seconds}
+        rewardCoins={audio.reward_coins}
+        onComplete={handleComplete}
+      />
 
-//       {/* Info Box */}
-//       <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-//         <h3 className="font-bold text-yellow-800">📌 How to Earn:</h3>
-//         <ul className="list-disc ml-4 mt-2 text-sm text-yellow-700 space-y-1">
-//           <li>Listen without switching tabs</li>
-//           <li>Keep volume above 15%</li>
-//           <li>Do not skip or fast-forward</li>
-//           <li>Complete 100% of the audio</li>
-//         </ul>
-//       </div>
-//     </div>
-//   );
-// }
+      {/* Info Box */}
+      <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <h3 className="font-bold text-yellow-800">📌 How to Earn:</h3>
+        <ul className="list-disc ml-4 mt-2 text-sm text-yellow-700 space-y-1">
+          <li>Listen without switching tabs</li>
+          <li>Keep volume above 15%</li>
+          <li>Do not skip or fast-forward</li>
+          <li>Complete 100% of the audio</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
