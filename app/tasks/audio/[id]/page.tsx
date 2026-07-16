@@ -286,7 +286,7 @@ export default function AudioPlayerPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP AD - Adsterra Banner */}
+        {/* ✅ TOP AD */}
         <div className="mb-3">
           <AdWrapper type="top" />
         </div>
@@ -456,7 +456,7 @@ export default function AudioPlayerPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM AD - Adsterra Banner */}
+        {/* ✅ BOTTOM AD */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
             <AdWrapper type="bottom" />
