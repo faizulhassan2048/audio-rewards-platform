@@ -141,7 +141,7 @@ export default function BronzeLevelPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Levels
         </Link>
 
-        {/* ✅ TOP AD */}
+        {/* ✅ TOP AD - Adsterra Banner */}
         <AdWrapper type="top" />
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
@@ -169,7 +169,6 @@ export default function BronzeLevelPage() {
             onClick={() => {
               const audio = status.current_audio;
               if (audio) {
-                // ✅ Pass milestone info to audio page
                 const isMilestone = MILESTONES.includes(status.completed_audios + 1);
                 const url = `/tasks/audio/${audio.id}?index=${status.completed_audios + 1}&total=${status.total_audios}&milestone=${isMilestone}`;
                 window.location.href = url;
@@ -205,7 +204,7 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ✅ BOTTOM AD */}
+        {/* ✅ BOTTOM AD - Adsterra Banner */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 px-4">
           <div className="max-w-md mx-auto">
             <AdWrapper type="bottom" />

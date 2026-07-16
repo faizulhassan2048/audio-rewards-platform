@@ -53,5 +53,3 @@ export default function AdBanner({ position, className = '' }: AdBannerProps) {
     />
   );
 }
-
-

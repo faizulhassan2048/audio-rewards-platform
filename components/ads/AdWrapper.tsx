@@ -47,6 +47,3 @@ export default function AdWrapper({
 
   return null;
 }
-
-
-

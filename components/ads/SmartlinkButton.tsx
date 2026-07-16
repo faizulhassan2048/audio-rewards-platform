@@ -41,6 +41,9 @@ export default function SmartlinkButton({
         return prev - 1;
       });
     }, 1000);
+
+    // ✅ Cleanup timer on unmount
+    return () => clearInterval(timer);
   };
 
   const handleContinue = () => {
@@ -96,8 +99,3 @@ export default function SmartlinkButton({
     </div>
   );
 }
-
-
-
-
-

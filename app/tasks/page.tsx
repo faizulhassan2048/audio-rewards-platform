@@ -94,7 +94,7 @@ export default function TasksHubPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto space-y-4">
 
-        {/* ✅ TOP AD */}
+        {/* ✅ TOP AD - Adsterra Banner */}
         <AdWrapper type="top" />
 
         {/* Header */}
@@ -153,7 +153,7 @@ export default function TasksHubPage() {
           <GoldLevel unlocked={firstWithdrawalDone} />
         </div>
 
-        {/* ✅ BOTTOM AD */}
+        {/* ✅ BOTTOM AD - Adsterra Banner */}
         <AdWrapper type="bottom" />
       </div>
     </div>
@@ -235,8 +235,3 @@ function GoldLevel({ unlocked }: { unlocked: boolean }) {
     </div>
   )
 }
-
-
-
-
-
