@@ -45,12 +45,14 @@ export default function AudioPlayerPage() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
 
+  // ✅ Check if this is a milestone from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const milestone = params.get('milestone') === 'true';
     setIsMilestone(milestone);
   }, []);
 
+  // Fetch audio data and create session - PARALLEL
   useEffect(() => {
     const fetchAudio = async () => {
       try {
@@ -58,6 +60,7 @@ export default function AudioPlayerPage() {
         const index = parseInt(params.get('index') || '1');
         const total = parseInt(params.get('total') || '15');
 
+        // ✅ Parallel fetch for better performance
         const [sessionRes, audioRes] = await Promise.all([
           fetch('/api/audio/session', {
             method: 'POST',
@@ -85,6 +88,7 @@ export default function AudioPlayerPage() {
             total: total
           });
         } else if (audioUrl) {
+          // Fallback if audio API fails but session has URL
           setAudio({
             id: audioId,
             title: `Audio ${index}`,
@@ -105,6 +109,7 @@ export default function AudioPlayerPage() {
     fetchAudio();
   }, [audioId, router]);
 
+  // Preload audio when URL changes
   useEffect(() => {
     if (audio && audioRef.current) {
       audioRef.current.load();
@@ -112,6 +117,7 @@ export default function AudioPlayerPage() {
     }
   }, [audio]);
 
+  // Send heartbeat
   const sendHeartbeat = async () => {
     if (!sessionToken || !audioRef.current) return;
     const progressPercent = (audioRef.current.currentTime / audioRef.current.duration) * 100;
@@ -128,6 +134,7 @@ export default function AudioPlayerPage() {
     } catch { /* non-fatal */ }
   };
 
+  // Start/stop heartbeat
   useEffect(() => {
     if (isPlaying && sessionToken) {
       heartbeatInterval.current = setInterval(sendHeartbeat, 8000);
@@ -140,11 +147,13 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
+  // Handle audio complete
   const handleAudioComplete = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     setAudioComplete(true);
     
+    // Send final heartbeat
     if (sessionToken) {
       await fetch('/api/audio/heartbeat', {
         method: 'POST',
@@ -181,6 +190,7 @@ export default function AudioPlayerPage() {
         return;
       }
 
+      // ✅ Level complete (audio 15)
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
         setTimeout(() => {
@@ -189,12 +199,14 @@ export default function AudioPlayerPage() {
         return;
       }
 
+      // ✅ For milestones (5, 10, 15) - show continue button
       if (isMilestone) {
         setShowContinueButton(true);
         setIsSubmitting(false);
         return;
       }
 
+      // ✅ Normal audio: go to next audio
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
@@ -214,18 +226,22 @@ export default function AudioPlayerPage() {
     }
   };
 
+  // ✅ Handle Smartlink Complete (milestone)
   const handleSmartlinkComplete = () => {
     setSmartlinkComplete(true);
     setShowContinueButton(false);
     
+    // ✅ Go to next audio after smartlink
     const nextIndex = (audio?.index || 0) + 1;
     if (nextIndex <= (audio?.total || 15)) {
-      router.push(`/tasks/audio/${audio?.id}?index=${nextIndex}&total=${audio?.total || 15}&milestone=${MILESTONES.includes(nextIndex)}`);
+      const isNextMilestone = MILESTONES.includes(nextIndex);
+      router.push(`/tasks/audio/${audio?.id}?index=${nextIndex}&total=${audio?.total || 15}&milestone=${isNextMilestone}`);
     } else {
       router.push('/tasks/bronze');
     }
   };
 
+  // Toggle play/pause
   const togglePlay = async () => {
     if (!audioRef.current || audioComplete) return;
 
@@ -244,6 +260,7 @@ export default function AudioPlayerPage() {
     }
   };
 
+  // Format time
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '0:00';
     const mins = Math.floor(seconds / 60);
@@ -281,6 +298,7 @@ export default function AudioPlayerPage() {
           <TopBanner />
         </div>
 
+        {/* Back Button */}
         <Link 
           href="/tasks/bronze" 
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6C63FF] mb-3 transition-colors"
@@ -288,6 +306,7 @@ export default function AudioPlayerPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Level
         </Link>
 
+        {/* Progress Info */}
         <div className="flex items-center justify-between text-sm mb-1.5">
           <span className="text-gray-500">
             Audio <span className="font-semibold text-gray-700">{audio.index}</span> of <span className="font-semibold text-gray-700">{audio.total}</span>
@@ -297,6 +316,7 @@ export default function AudioPlayerPage() {
           </span>
         </div>
 
+        {/* Progress Bar */}
         <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-5">
           <div 
             className="h-full bg-gradient-to-r from-[#6C63FF] to-purple-500 transition-all duration-300 rounded-full"
@@ -304,8 +324,10 @@ export default function AudioPlayerPage() {
           />
         </div>
 
+        {/* Audio Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5">
           
+          {/* Thumbnail/Artwork */}
           <div className="aspect-video bg-gradient-to-br from-purple-100 to-indigo-100 rounded-xl mb-4 flex items-center justify-center relative overflow-hidden">
             {audio.thumbnail_url ? (
               <img 
@@ -320,6 +342,7 @@ export default function AudioPlayerPage() {
               </div>
             )}
             
+            {/* Play/Pause Overlay Button */}
             <button
               onClick={togglePlay}
               disabled={audioComplete}
@@ -336,6 +359,7 @@ export default function AudioPlayerPage() {
               </div>
             </button>
 
+            {/* Audio Complete Badge */}
             {audioComplete && (
               <div className="absolute bottom-3 left-3 bg-green-500 text-white text-xs px-3 py-1 rounded-full font-medium">
                 ✅ Complete
@@ -343,16 +367,19 @@ export default function AudioPlayerPage() {
             )}
           </div>
 
+          {/* Title */}
           <h2 className="text-lg font-bold text-gray-800 text-center mb-3">
             {audio.title || `Audio ${audio.index}`}
           </h2>
 
+          {/* Time Display */}
           <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
             <span>{formatTime(currentTime)}</span>
             <span className="text-gray-300">|</span>
             <span>{formatTime(duration)}</span>
           </div>
 
+          {/* Audio Player */}
           <audio
             ref={audioRef}
             src={audio.audio_url}
@@ -374,6 +401,7 @@ export default function AudioPlayerPage() {
             onCanPlay={() => setAudioLoaded(true)}
           />
 
+          {/* Instructions */}
           <div className="mt-4 space-y-1.5 text-xs bg-gray-50 rounded-xl p-3.5">
             <div className="flex items-center gap-2 text-gray-600">
               <AlertCircle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
@@ -389,6 +417,7 @@ export default function AudioPlayerPage() {
             </div>
           </div>
 
+          {/* ✅ Milestone: Native Banner + Smartlink Button */}
           {isMilestone && audioComplete && !smartlinkComplete && (
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
@@ -405,6 +434,7 @@ export default function AudioPlayerPage() {
             </div>
           )}
 
+          {/* ✅ Normal Audio Complete */}
           {audioComplete && !isMilestone && (
             <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl text-center">
               <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
@@ -412,6 +442,7 @@ export default function AudioPlayerPage() {
             </div>
           )}
 
+          {/* Play Button */}
           {!isPlaying && !audioComplete && audioLoaded && (
             <button
               onClick={togglePlay}
@@ -422,6 +453,7 @@ export default function AudioPlayerPage() {
             </button>
           )}
 
+          {/* Loading state */}
           {!audioLoaded && !audioComplete && (
             <div className="mt-4 w-full py-3 bg-gray-200 text-gray-500 rounded-xl font-semibold flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />

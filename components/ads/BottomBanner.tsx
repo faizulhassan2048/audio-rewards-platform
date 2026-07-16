@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 
 declare global {
   interface Window {
-    bottomAtOptions?: any;
+    atOptions?: any;
   }
 }
 
@@ -18,34 +18,28 @@ export default function BottomBanner() {
 
     if (!adRef.current) return;
 
-    // ✅ Clear previous ad
-    adRef.current.innerHTML = '';
+    // ✅ Delay bottom banner to avoid overwriting top
+    const timer = setTimeout(() => {
+      if (!adRef.current) return;
 
-    // ✅ Use BOTTOM specific variable
-    window.bottomAtOptions = {
-      key: '28f5a1576733cd52ea49a41963a32c26',
-      format: 'iframe',
-      height: 50,
-      width: 320,
-      params: {},
-    };
+      adRef.current.innerHTML = '';
 
-    // ✅ Create script that uses bottomAtOptions
-    const script = document.createElement('script');
-    script.textContent = `
-      (function() {
-        var atOptions = window.bottomAtOptions || window.atOptions;
-        var script = document.createElement('script');
-        script.src = 'https://www.highperformanceformat.com/${window.bottomAtOptions.key}/invoke.js';
-        script.async = true;
-        document.currentScript.parentNode.insertBefore(script, document.currentScript);
-      })();
-    `;
-    script.async = true;
+      window.atOptions = {
+        key: '28f5a1576733cd52ea49a41963a32c26',
+        format: 'iframe',
+        height: 50,
+        width: 320,
+        params: {},
+      };
 
-    adRef.current.appendChild(script);
+      const script = document.createElement('script');
+      script.src = 'https://www.highperformanceformat.com/28f5a1576733cd52ea49a41963a32c26/invoke.js';
+      script.async = true;
+      adRef.current.appendChild(script);
+    }, 3000);
 
     return () => {
+      clearTimeout(timer);
       if (adRef.current) {
         adRef.current.innerHTML = '';
       }
