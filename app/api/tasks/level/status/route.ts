@@ -102,21 +102,8 @@ export async function GET() {
       }
     }
 
-    // ── AD GATE ──────────────────────────────────────────────────────
+    // ── ✅ AD GATE - FIX: DO NOT return current_audio ──────────────
     if (level.pending_ad_milestone) {
-      // ✅ FIX: Get current audio for display even when ad is required
-      let currentAudioId = level.audio_ids?.[level.completed_audios]
-      let audio = null
-      
-      if (currentAudioId) {
-        const { data: audioRow } = await supabase
-          .from('audios')
-          .select('id, title, audio_url, thumbnail_url, duration_seconds')
-          .eq('id', currentAudioId)
-          .maybeSingle()
-        audio = audioRow
-      }
-
       return NextResponse.json({
         locked: false,
         level_complete: false,
@@ -125,7 +112,7 @@ export async function GET() {
         level_name: level.level_name,
         completed_audios: level.completed_audios,
         total_audios: level.total_audios,
-        current_audio: audio, // ✅ Now returns current_audio
+        current_audio: null, // ✅ CRITICAL FIX: Block access to next audio
       })
     }
 
@@ -186,7 +173,7 @@ export async function GET() {
       })
     }
 
-    // Get current audio
+    // Get current audio (only when no pending ad)
     let currentAudioId = level.audio_ids?.[level.completed_audios]
 
     let audio = null
