@@ -111,9 +111,9 @@ export async function POST(req: Request) {
     completed_audio_ids: newCompletedIds,
   }
 
+  // ✅ Set pending_ad_milestone - NO timestamp
   if (hitFullAdMilestone) {
     updatePayload.pending_ad_milestone = newCompletedCount
-    updatePayload.pending_ad_milestone_timestamp = new Date().toISOString()
     if (isLevelComplete) {
       updatePayload.completed_at = new Date().toISOString()
     }

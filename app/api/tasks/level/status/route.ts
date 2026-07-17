@@ -29,7 +29,6 @@ export async function GET() {
           level_name: LEVEL_NAME,
           total_audios: audioIds.length || TOTAL_AUDIOS,
           audio_ids: audioIds,
-          pending_ad_milestone_timestamp: null,
         })
         .select('*')
         .single()
@@ -66,7 +65,6 @@ export async function GET() {
           ad_session_started_at: null,
           ad_milestones_unlocked: [],
           bonus_claimed: false,
-          pending_ad_milestone_timestamp: null,
         })
         .eq('id', level.id)
         .select('*')
@@ -75,34 +73,7 @@ export async function GET() {
       level = reset
     }
 
-    // ── ✅ AUTO-UNLOCK STUCK MILESTONES ──────────────────────────────
-    if (level.pending_ad_milestone && level.pending_ad_milestone_timestamp) {
-      const pendingTime = new Date(level.pending_ad_milestone_timestamp).getTime()
-      const elapsed = (Date.now() - pendingTime) / 1000
-      
-      if (elapsed > 30) {
-        console.log(`⏰ Auto-unlocking milestone ${level.pending_ad_milestone} after ${elapsed}s`)
-        const milestone = level.pending_ad_milestone
-        const unlocked = Array.from(new Set([...(level.ad_milestones_unlocked || []), milestone]))
-        
-        const { error: updateErr } = await supabase
-          .from('user_levels')
-          .update({
-            pending_ad_milestone: null,
-            ad_milestones_unlocked: unlocked,
-            pending_ad_milestone_timestamp: null,
-          })
-          .eq('id', level.id)
-        
-        if (!updateErr) {
-          level.pending_ad_milestone = null
-          level.ad_milestones_unlocked = unlocked
-          level.pending_ad_milestone_timestamp = null
-        }
-      }
-    }
-
-    // ── ✅ AD GATE - FIX: DO NOT return current_audio ──────────────
+    // ── ✅ AD GATE - CRITICAL: Return ad_required with current_audio = null ──
     if (level.pending_ad_milestone) {
       return NextResponse.json({
         locked: false,
@@ -112,7 +83,7 @@ export async function GET() {
         level_name: level.level_name,
         completed_audios: level.completed_audios,
         total_audios: level.total_audios,
-        current_audio: null, // ✅ CRITICAL FIX: Block access to next audio
+        current_audio: null, // ✅ CRITICAL: Block access to next audio
       })
     }
 
@@ -134,7 +105,6 @@ export async function GET() {
             ad_session_started_at: null,
             ad_milestones_unlocked: [],
             bonus_claimed: false,
-            pending_ad_milestone_timestamp: null,
           })
           .eq('id', level.id)
           .select('*')
@@ -196,7 +166,6 @@ export async function GET() {
           total_audios: freshAudioIds.length || TOTAL_AUDIOS,
           completed_audio_ids: [],
           completed_audios: 0,
-          pending_ad_milestone_timestamp: null,
         })
         .eq('id', level.id)
         .select('*')

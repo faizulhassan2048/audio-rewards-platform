@@ -40,11 +40,13 @@ export default function BronzeLevelPage() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [showComplete, setShowComplete] = useState(false);
   const [countdown, setCountdown] = useState('');
-  const [adCompleteTriggered, setAdCompleteTriggered] = useState(false);
+  const [showAd, setShowAd] = useState(false);
+  const [adMilestone, setAdMilestone] = useState<number | null>(null);
+  const [adClaiming, setAdClaiming] = useState(false);
+  const [adError, setAdError] = useState<string | null>(null);
 
   const pendingClaimRef = useRef(false);
   const isResetting = useRef(false);
-  const fetchInterval = useRef<NodeJS.Timeout | null>(null);
 
   // ✅ Safe JSON fetch helper
   const safeFetch = async (url: string) => {
@@ -88,27 +90,19 @@ export default function BronzeLevelPage() {
 
       setStatus(statusData);
 
-      // ✅ If ad_required, show toast and start polling
+      // ✅ CRITICAL: If ad_required is true, show AdModal immediately
       if (statusData.ad_required && statusData.milestone) {
-        if (!adCompleteTriggered) {
-          toast.info(`📢 Complete ad to unlock Audio ${statusData.completed_audios + 1}`, {
-            duration: 5000,
-          });
-        }
-        // Start polling to check when ad is complete
-        if (!fetchInterval.current) {
-          fetchInterval.current = setInterval(() => {
-            fetchStatus();
-          }, 3000);
-        }
+        setAdMilestone(statusData.milestone);
+        setShowAd(true);
+        setAdError(null);
         setLoading(false);
         return;
       }
 
-      // ✅ Clear interval when ad is no longer required
-      if (fetchInterval.current) {
-        clearInterval(fetchInterval.current);
-        fetchInterval.current = null;
+      // ✅ Clear ad state if no ad required
+      if (showAd) {
+        setShowAd(false);
+        setAdMilestone(null);
       }
 
       if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
@@ -134,12 +128,6 @@ export default function BronzeLevelPage() {
 
   useEffect(() => {
     fetchStatus();
-    return () => {
-      if (fetchInterval.current) {
-        clearInterval(fetchInterval.current);
-        fetchInterval.current = null;
-      }
-    };
   }, [fetchStatus]);
 
   useEffect(() => {
@@ -172,6 +160,36 @@ export default function BronzeLevelPage() {
       toast.error('Network error while claiming reward');
     } finally {
       pendingClaimRef.current = false;
+    }
+  };
+
+  // ✅ Handle Ad Complete
+  const handleAdClaim = async () => {
+    setAdClaiming(true);
+    setAdError(null);
+    try {
+      const res = await fetch('/api/tasks/level/ads/verify', { method: 'POST' });
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+
+      if (!res.ok) {
+        setAdError(data.error || 'Could not verify ad. Please try again.');
+        return;
+      }
+
+      setShowAd(false);
+      setAdMilestone(null);
+
+      if (data.isFinalMilestone) {
+        await claimReward();
+      } else {
+        toast.success('✅ Ad complete! Continue to next audio.');
+      }
+      await fetchStatus();
+    } catch {
+      setAdError('Network error, your progress is safe, just tap Retry.');
+    } finally {
+      setAdClaiming(false);
     }
   };
 
@@ -235,10 +253,15 @@ export default function BronzeLevelPage() {
             <p className="text-xs text-yellow-600 mt-2">
               ⏳ Progress saved: {status.completed_audios}/{status.total_audios} audios completed
             </p>
-            <div className="mt-4 flex items-center justify-center gap-2">
-              <Clock className="w-4 h-4 text-yellow-600 animate-spin" />
-              <span className="text-xs text-yellow-600">Waiting for ad completion...</span>
-            </div>
+            <button
+              onClick={() => {
+                setShowAd(true);
+                setAdError(null);
+              }}
+              className="mt-4 px-6 py-2 bg-yellow-600 text-white rounded-lg font-semibold hover:bg-yellow-700 transition-colors"
+            >
+              🔄 Show Ad
+            </button>
           </div>
         )}
 
@@ -290,6 +313,16 @@ export default function BronzeLevelPage() {
         </div>
 
       </div>
+
+      {/* ✅ AD MODAL - Force show when ad_required */}
+      {showAd && (
+        <AdModal
+          onFinished={handleAdClaim}
+          rewardCoins={adMilestone === 15 ? REWARD_COINS : 0}
+          claiming={adClaiming}
+          errorMessage={adError}
+        />
+      )}
 
       {showComplete && (
         <LevelCompleteModal
