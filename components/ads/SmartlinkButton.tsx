@@ -25,43 +25,20 @@ export default function SmartlinkButton({
   const [isError, setIsError] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
   const [showRetry, setShowRetry] = useState(false);
-  const [autoCompleteTriggered, setAutoCompleteTriggered] = useState(false);
+  const [popupBlocked, setPopupBlocked] = useState(false);
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const autoCompleteRef = useRef<NodeJS.Timeout | null>(null);
   const maxRetries = 3;
   const totalSeconds = 15;
-  const AUTO_COMPLETE_TIMEOUT = 30000; // ✅ 30 seconds
 
-  // ✅ Cleanup on unmount
+  // ✅ Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
     };
   }, []);
 
-  // ✅ Auto-complete after 30 seconds if user is stuck
-  useEffect(() => {
-    if (isClicked && !isTimerComplete && secondsLeft > 0 && !autoCompleteTriggered) {
-      autoCompleteRef.current = setTimeout(() => {
-        if (!isTimerComplete && secondsLeft > 0) {
-          console.log('⏰ Auto-completing smartlink after 30s timeout');
-          setAutoCompleteTriggered(true);
-          setSecondsLeft(0);
-          setIsTimerComplete(true);
-          if (timerRef.current) clearInterval(timerRef.current);
-          toast.success('✅ Ad completed automatically. Continuing...');
-        }
-      }, AUTO_COMPLETE_TIMEOUT);
-      
-      return () => {
-        if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
-      };
-    }
-  }, [isClicked, isTimerComplete, secondsLeft, autoCompleteTriggered]);
-
-  // ✅ Handle tab visibility change
+  // ✅ Handle tab visibility change - PAUSE timer when user switches tab
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -95,7 +72,6 @@ export default function SmartlinkButton({
           clearInterval(timerRef.current!);
           timerRef.current = null;
           setIsTimerComplete(true);
-          if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
           return 0;
         }
         return prev - 1;
@@ -103,17 +79,32 @@ export default function SmartlinkButton({
     }, 1000);
   };
 
-  // ✅ Handle Smartlink Click
+  // ✅ Check if popup is blocked
+  const checkPopupBlocked = (newWindow: Window | null) => {
+    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+      setPopupBlocked(true);
+      setIsError(true);
+      setShowRetry(true);
+      toast.error('⚠️ Popup blocked! Please allow popups for this site.', {
+        duration: 5000,
+      });
+      return true;
+    }
+    return false;
+  };
+
+  // ✅ Handle Smartlink Click with Popup Detection
   const handleClick = () => {
     if (isClicked) return;
 
+    setPopupBlocked(false);
+    
     try {
+      // ✅ Try to open Smartlink in new tab
       const newWindow = window.open(smartlinkUrl, '_blank', 'noopener');
       
-      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-        console.warn('⚠️ Popup blocked or ad blocker detected');
-        setIsError(true);
-        setShowRetry(true);
+      // ✅ Check if popup was blocked
+      if (checkPopupBlocked(newWindow)) {
         return;
       }
 
@@ -122,39 +113,46 @@ export default function SmartlinkButton({
       setIsTimerComplete(false);
       setIsError(false);
       setShowRetry(false);
-      setAutoCompleteTriggered(false);
       startTimer();
 
     } catch (error) {
       console.error('❌ Error opening smartlink:', error);
+      setPopupBlocked(true);
       setIsError(true);
       setShowRetry(true);
     }
   };
 
-  // ✅ Handle Retry
+  // ✅ Handle Retry with popup unblock check
   const handleRetry = () => {
     if (retryCount >= maxRetries) {
+      // ✅ After max retries, use fallback - auto-complete
       setIsFallback(true);
       setShowRetry(false);
       setIsError(false);
+      setPopupBlocked(false);
       setIsClicked(true);
       setSecondsLeft(0);
       setIsTimerComplete(true);
+      toast.info('⏳ Max retries reached. Continuing automatically...', {
+        duration: 3000,
+      });
       return;
     }
 
     setRetryCount(prev => prev + 1);
     setIsError(false);
     setShowRetry(false);
+    setPopupBlocked(false);
     setIsClicked(false);
     
+    // ✅ Auto-retry after 2 seconds
     setTimeout(() => {
       handleClick();
     }, 1000);
   };
 
-  // ✅ Handle Fallback
+  // ✅ Handle Fallback - Auto complete after 5 seconds
   useEffect(() => {
     if (isFallback) {
       const fallbackTimer = setTimeout(() => {
@@ -164,16 +162,46 @@ export default function SmartlinkButton({
     }
   }, [isFallback, onComplete]);
 
-  // ✅ Handle Continue
+  // ✅ Handle Continue after timer complete
   const handleContinue = () => {
     if (isTimerComplete) {
-      if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
       onComplete();
     }
   };
 
   const isTimerPaused = isPaused && isClicked && !isTimerComplete && secondsLeft > 0;
   const progress = ((totalSeconds - secondsLeft) / totalSeconds) * 100;
+
+  // ✅ Show popup blocked state
+  if (popupBlocked && showRetry) {
+    return (
+      <div className={`w-full ${className}`}>
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <span className="font-semibold text-red-700">
+              🔒 Popup Blocked!
+            </span>
+          </div>
+          <p className="text-sm text-red-600 mb-2">
+            Please allow popups for this site to continue.
+          </p>
+          <div className="text-xs text-red-500 bg-red-100 p-2 rounded-lg mb-3">
+            <p>🔹 Click the popup icon in your browser address bar</p>
+            <p>🔹 Select "Always allow popups"</p>
+            <p>🔹 Then click "Retry" below</p>
+          </div>
+          <button
+            onClick={handleRetry}
+            className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2 mx-auto"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Retry ({retryCount + 1}/{maxRetries})
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ✅ Show error state with retry
   if (isError && showRetry) {
@@ -205,7 +233,7 @@ export default function SmartlinkButton({
     );
   }
 
-  // ✅ Show fallback state
+  // ✅ Show fallback state (after max retries)
   if (isFallback) {
     return (
       <div className={`w-full ${className}`}>
