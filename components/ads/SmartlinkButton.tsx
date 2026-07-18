@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Clock, ExternalLink, AlertCircle, RefreshCw } from 'lucide-react';
+import { ChevronRight, Clock, ExternalLink, AlertCircle, RefreshCw, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface SmartlinkButtonProps {
@@ -32,7 +32,7 @@ export default function SmartlinkButton({
   const autoCompleteRef = useRef<NodeJS.Timeout | null>(null);
   const maxRetries = 3;
   const totalSeconds = 15;
-  const AUTO_COMPLETE_TIMEOUT = 30000;
+  const AUTO_COMPLETE_TIMEOUT = 30000; // 30 seconds
 
   // ✅ Cleanup on unmount
   useEffect(() => {
@@ -276,42 +276,95 @@ export default function SmartlinkButton({
   return (
     <div className={`w-full ${className}`}>
       {!isClicked ? (
-        <button
-          onClick={handleClick}
-          className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3"
-        >
-          <ExternalLink className="w-5 h-5" />
-          {buttonText}
-          <ChevronRight className="w-5 h-5" />
-        </button>
-      ) : !isTimerComplete ? (
-        <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Clock className="w-5 h-5 text-amber-600 animate-pulse" />
-            <span className="font-semibold text-amber-700">
-              {isTimerPaused ? '⏸️ Timer paused!' : 'Please complete the ad in the new tab'}
-            </span>
-          </div>
+        <div>
+          {/* Button */}
+          <button
+            onClick={handleClick}
+            className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3"
+          >
+            <ExternalLink className="w-5 h-5" />
+            <span className="text-sm sm:text-base">{buttonText}</span>
+            <ChevronRight className="w-5 h-5" />
+          </button>
           
-          <div className="flex items-center justify-center gap-3">
-            <span className="text-2xl font-bold text-amber-600">{secondsLeft}s</span>
-            <div className="flex-1 max-w-[200px] h-2 bg-amber-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-amber-400 to-amber-600 transition-all duration-1000 rounded-full"
-                style={{ width: `${Math.min(100, progress)}%` }}
-              />
+          {/* ✅ User Instructions */}
+          <div className="mt-2.5 bg-blue-50 border border-blue-100 rounded-lg p-2.5">
+            <div className="flex items-start gap-2">
+              <Info className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-medium text-blue-700">📌 How to continue:</p>
+                <ul className="text-[10px] text-blue-600 space-y-0.5 mt-0.5">
+                  <li>1️⃣ Tap to open ad</li>
+                  <li>2️⃣ Wait 15 seconds ⏱️</li>
+                  <li>3️⃣ Return to this tab</li>
+                  <li>4️⃣ Tap "Continue" ✅</li>
+                </ul>
+              </div>
             </div>
           </div>
-          
-          {isTimerPaused && (
-            <p className="text-xs text-red-500 mt-2 font-bold animate-pulse">
+        </div>
+      ) : !isTimerComplete ? (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center">
+          {/* Timer */}
+          <div className="flex items-center justify-center gap-4 mb-2">
+            <div className="relative w-16 h-16">
+              <svg className="w-16 h-16 transform -rotate-90">
+                <circle
+                  className="text-gray-200"
+                  strokeWidth="4"
+                  stroke="currentColor"
+                  fill="transparent"
+                  r="28"
+                  cx="32"
+                  cy="32"
+                />
+                <circle
+                  className="text-amber-600 transition-all duration-1000"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  stroke="currentColor"
+                  fill="transparent"
+                  r="28"
+                  cx="32"
+                  cy="32"
+                  strokeDasharray={`${(progress / 100) * 175.93} 175.93`}
+                />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-amber-600">
+                {secondsLeft}s
+              </span>
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-medium text-gray-700">
+                {isTimerPaused ? '⏸️ Paused' : '⏳ Loading...'}
+              </p>
+              <p className="text-xs text-gray-500">{Math.round(progress)}% complete</p>
+            </div>
+          </div>
+
+          {/* ✅ Quick Tips */}
+          <div className="bg-white/70 rounded-lg p-2.5 mb-2 text-left">
+            <div className="flex items-start gap-2">
+              <Info className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-medium text-gray-700">📌 Quick Tips:</p>
+                <ul className="text-[11px] text-gray-600 space-y-0.5 mt-0.5">
+                  <li>✅ Stay on this tab</li>
+                  <li>✅ Don't close this window</li>
+                  <li>✅ {isTimerPaused ? '⚠️ Come back to resume!' : `⏳ ${secondsLeft}s remaining`}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Status Message */}
+          {isTimerPaused ? (
+            <p className="text-xs text-red-500 font-bold animate-pulse">
               ⚠️ Please come back to this tab! Timer is paused.
             </p>
-          )}
-          
-          {!isTimerPaused && (
-            <p className="text-xs text-amber-500 mt-2">
-              ⚠️ Don't close this window • Timer pauses if you switch tabs
+          ) : (
+            <p className="text-xs text-amber-500">
+              📱 Stay on this page • Timer pauses if you switch tabs
             </p>
           )}
         </div>
@@ -320,7 +373,8 @@ export default function SmartlinkButton({
           onClick={handleContinue}
           className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3 animate-pulse"
         >
-          ✅ Continue to Next Audio
+          <span>✅</span>
+          Continue to Next Audio
           <ChevronRight className="w-5 h-5" />
         </button>
       )}
