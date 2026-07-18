@@ -11,6 +11,12 @@ interface AdModalProps {
   errorMessage?: string | null;
 }
 
+declare global {
+  interface Window {
+    atOptions?: any;
+  }
+}
+
 export default function AdModal({
   onFinished,
   rewardCoins,
@@ -28,7 +34,7 @@ export default function AdModal({
   const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
   const adContainerRef = useRef<HTMLDivElement>(null);
   const adStarted = useRef(false);
-  const scriptLoaded = useRef(false);
+  const scriptInjected = useRef(false);
 
   // ✅ Call ads/start ONLY if ad is actually required
   useEffect(() => {
@@ -76,36 +82,54 @@ export default function AdModal({
     checkAndStart();
   }, []);
 
-  // ✅ Load Monetag script
+  // ✅ ✅ ✅ ADSTERRA - NO MONETAG
   useEffect(() => {
-    if (scriptLoaded.current) return;
-    scriptLoaded.current = true;
+    if (scriptInjected.current || !adContainerRef.current) return;
+    scriptInjected.current = true;
 
-    console.log('🎬 Loading Monetag script...');
+    console.log('🎬 Injecting Adsterra Interstitial...');
 
-    document.querySelectorAll('script[data-zone="11270537"]').forEach(s => s.remove());
+    // ✅ Clear container
+    adContainerRef.current.innerHTML = '';
+
+    // ✅ Adsterra Original Code - 320x50 Banner
+    window.atOptions = {
+      key: '28f5a1576733cd52ea49a41963a32c26',
+      format: 'iframe',
+      height: 50,
+      width: 320,
+      params: {},
+    };
 
     const script = document.createElement('script');
-    script.setAttribute('data-zone', '11270537');
-    script.src = 'https://n6wxm.com/vignette.min.js';
+    script.src = 'https://www.highperformanceformat.com/28f5a1576733cd52ea49a41963a32c26/invoke.js';
     script.async = true;
     
     script.onload = () => {
-      console.log('✅ Monetag script loaded!');
+      console.log('✅ Adsterra ad loaded!');
       setAdReady(true);
     };
     
     script.onerror = () => {
-      console.error('❌ Monetag script failed to load');
+      console.error('❌ Adsterra ad failed to load');
       setAdReady(true);
     };
 
-    document.head.appendChild(script);
+    adContainerRef.current.appendChild(script);
+
+    // ✅ Fallback: If script doesn't load, mark ready after 5 seconds
+    const timeout = setTimeout(() => {
+      if (!adReady) {
+        console.log('⏰ Ad load timeout, forcing ready...');
+        setAdReady(true);
+      }
+    }, 5000);
 
     return () => {
-      document.querySelectorAll('script[data-zone="11270537"]').forEach(s => {
-        try { s.remove(); } catch (e) { /* ignore */ }
-      });
+      clearTimeout(timeout);
+      if (adContainerRef.current) {
+        adContainerRef.current.innerHTML = '';
+      }
     };
   }, []);
 
@@ -211,7 +235,7 @@ export default function AdModal({
         
         <div 
           ref={adContainerRef}
-          className="w-full h-full flex items-center justify-center"
+          className="w-full h-full flex items-center justify-center bg-gray-900"
         >
           {!adReady ? (
             <div className="text-center text-white">
@@ -220,10 +244,8 @@ export default function AdModal({
               <p className="text-xs text-white/50 mt-1">Please wait</p>
             </div>
           ) : (
-            <div 
-              id="monetag-interstitial-container" 
-              className="w-full h-full"
-            />
+            // ✅ Adsterra ad renders here
+            <div id="adsterra-container" className="w-full h-full" />
           )}
         </div>
 

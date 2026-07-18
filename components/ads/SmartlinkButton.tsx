@@ -1,313 +1,329 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ChevronRight, Clock, ExternalLink, AlertCircle, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
 
-interface AdModalProps {
-  onFinished: () => void;
-  rewardCoins: number;
-  adDurationSeconds?: number;
-  claiming?: boolean;
-  errorMessage?: string | null;
+interface SmartlinkButtonProps {
+  smartlinkUrl: string;
+  onComplete: () => void;
+  className?: string;
+  buttonText?: string;
 }
 
-declare global {
-  interface Window {
-    atOptions?: any;
-  }
-}
-
-export default function AdModal({
-  onFinished,
-  rewardCoins,
-  adDurationSeconds = 30,
-  claiming = false,
-  errorMessage = null,
-}: AdModalProps) {
-  const [secondsLeft, setSecondsLeft] = useState(adDurationSeconds);
-  const [adReady, setAdReady] = useState(false);
-  const [tabWarning, setTabWarning] = useState(false);
-  const [backWarning, setBackWarning] = useState(false);
-  const [adStartError, setAdStartError] = useState<string | null>(null);
+export default function SmartlinkButton({
+  smartlinkUrl,
+  onComplete,
+  className = '',
+  buttonText = 'Continue to Next Audio',
+}: SmartlinkButtonProps) {
+  const [isClicked, setIsClicked] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(15);
+  const [isTimerComplete, setIsTimerComplete] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [isError, setIsError] = useState(false);
+  const [isFallback, setIsFallback] = useState(false);
+  const [showRetry, setShowRetry] = useState(false);
+  const [popupBlocked, setPopupBlocked] = useState(false);
+  const [autoCompleteTriggered, setAutoCompleteTriggered] = useState(false);
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const backWarningTimeout = useRef<NodeJS.Timeout | null>(null);
-  const adContainerRef = useRef<HTMLDivElement>(null);
-  const adStarted = useRef(false);
-  const scriptInjected = useRef(false);
+  const autoCompleteRef = useRef<NodeJS.Timeout | null>(null);
+  const maxRetries = 3;
+  const totalSeconds = 15;
+  const AUTO_COMPLETE_TIMEOUT = 30000;
 
-  // ✅ Call ads/start ONLY if ad is actually required
+  // ✅ Cleanup on unmount
   useEffect(() => {
-    if (adStarted.current) return;
-    
-    const checkAndStart = async () => {
-      try {
-        console.log('🔍 Checking if ad is required...');
-        const statusRes = await fetch('/api/tasks/level/status');
-        const statusText = await statusRes.text();
-        const statusData = statusText ? JSON.parse(statusText) : {};
-        
-        if (!statusData.ad_required || !statusData.milestone) {
-          console.log('⚠️ No ad required, closing modal');
-          setAdStartError('No ad is currently required');
-          setTimeout(() => onFinished(), 1500);
-          return;
-        }
-        
-        console.log('✅ Ad required for milestone:', statusData.milestone);
-        adStarted.current = true;
-        
-        console.log('🎬 Starting ad session...');
-        const res = await fetch('/api/tasks/level/ads/start', { 
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        
-        const text = await res.text();
-        const data = text ? JSON.parse(text) : {};
-        
-        if (data.success) {
-          console.log('✅ Ad session started:', data.milestone);
-          setAdStartError(null);
-        } else {
-          console.error('❌ Ad start failed:', data.error);
-          setAdStartError(data.error || 'Failed to start ad');
-        }
-      } catch (err) {
-        console.error('Ad start error:', err);
-        setAdStartError('Network error starting ad');
-      }
-    };
-    
-    checkAndStart();
-  }, []);
-
-  // ✅ Inject Adsterra Original Code
-  useEffect(() => {
-    if (scriptInjected.current || !adContainerRef.current) return;
-    scriptInjected.current = true;
-
-    console.log('🎬 Injecting Adsterra Interstitial...');
-
-    // ✅ Clear container
-    adContainerRef.current.innerHTML = '';
-
-    // ✅ Adsterra Original Code - 320x50 Banner
-    window.atOptions = {
-      key: '28f5a1576733cd52ea49a41963a32c26',
-      format: 'iframe',
-      height: 50,
-      width: 320,
-      params: {},
-    };
-
-    const script = document.createElement('script');
-    script.src = 'https://www.highperformanceformat.com/28f5a1576733cd52ea49a41963a32c26/invoke.js';
-    script.async = true;
-    
-    script.onload = () => {
-      console.log('✅ Adsterra ad loaded!');
-      setAdReady(true);
-    };
-    
-    script.onerror = () => {
-      console.error('❌ Adsterra ad failed to load');
-      // ✅ Fallback: Show timer anyway
-      setAdReady(true);
-    };
-
-    adContainerRef.current.appendChild(script);
-
-    // ✅ Fallback: If script doesn't load, mark ready after 5 seconds
-    const timeout = setTimeout(() => {
-      if (!adReady) {
-        console.log('⏰ Ad load timeout, forcing ready...');
-        setAdReady(true);
-      }
-    }, 5000);
-
-    return () => {
-      clearTimeout(timeout);
-      if (adContainerRef.current) {
-        adContainerRef.current.innerHTML = '';
-      }
-    };
-  }, []);
-
-  // Countdown
-  useEffect(() => {
-    timerRef.current = setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
     };
   }, []);
 
-  // Tab visibility warning
+  // ✅ Auto-complete after 30 seconds
   useEffect(() => {
-    const handleVisibility = () => {
-      setTabWarning(document.visibilityState !== 'visible');
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, []);
+    if (isClicked && !isTimerComplete && secondsLeft > 0 && !autoCompleteTriggered) {
+      autoCompleteRef.current = setTimeout(() => {
+        if (!isTimerComplete && secondsLeft > 0) {
+          console.log('⏰ Auto-completing smartlink after 30s timeout');
+          setAutoCompleteTriggered(true);
+          setSecondsLeft(0);
+          setIsTimerComplete(true);
+          if (timerRef.current) clearInterval(timerRef.current);
+          toast.success('✅ Ad completed automatically. Continuing...');
+        }
+      }, AUTO_COMPLETE_TIMEOUT);
+      
+      return () => {
+        if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
+      };
+    }
+  }, [isClicked, isTimerComplete, secondsLeft, autoCompleteTriggered]);
 
-  // Back-button trap
+  // ✅ Handle tab visibility
   useEffect(() => {
-    window.history.pushState({ adGuard: true }, '');
-    const handlePopState = () => {
-      window.history.pushState({ adGuard: true }, '');
-      setBackWarning(true);
-      if (backWarningTimeout.current) clearTimeout(backWarningTimeout.current);
-      backWarningTimeout.current = setTimeout(() => setBackWarning(false), 2500);
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setIsPaused(true);
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+      } else {
+        setIsPaused(false);
+        if (isClicked && !isTimerComplete && secondsLeft > 0) {
+          startTimer();
+        }
+      }
     };
-    window.addEventListener('popstate', handlePopState);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.removeEventListener('popstate', handlePopState);
-      if (backWarningTimeout.current) clearTimeout(backWarningTimeout.current);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [isClicked, isTimerComplete, secondsLeft]);
 
-  const canContinue = secondsLeft <= 0 && adReady;
+  // ✅ Start timer
+  const startTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    
+    timerRef.current = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (document.hidden) return prev;
+        if (prev <= 1) {
+          clearInterval(timerRef.current!);
+          timerRef.current = null;
+          setIsTimerComplete(true);
+          if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
-  // ✅ Show error with retry button
-  if (adStartError) {
+  // ✅ Check if popup is blocked
+  const checkPopupBlocked = (newWindow: Window | null) => {
+    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+      setPopupBlocked(true);
+      setIsError(true);
+      setShowRetry(true);
+      toast.error('⚠️ Popup blocked! Please allow popups for this site.', {
+        duration: 5000,
+      });
+      return true;
+    }
+    return false;
+  };
+
+  // ✅ Handle Smartlink Click
+  const handleClick = () => {
+    if (isClicked) return;
+
+    setPopupBlocked(false);
+    
+    try {
+      const newWindow = window.open(smartlinkUrl, '_blank', 'noopener');
+      
+      if (checkPopupBlocked(newWindow)) {
+        return;
+      }
+
+      setIsClicked(true);
+      setSecondsLeft(totalSeconds);
+      setIsTimerComplete(false);
+      setIsError(false);
+      setShowRetry(false);
+      setAutoCompleteTriggered(false);
+      startTimer();
+
+    } catch (error) {
+      console.error('❌ Error opening smartlink:', error);
+      setPopupBlocked(true);
+      setIsError(true);
+      setShowRetry(true);
+    }
+  };
+
+  // ✅ Handle Retry
+  const handleRetry = () => {
+    if (retryCount >= maxRetries) {
+      setIsFallback(true);
+      setShowRetry(false);
+      setIsError(false);
+      setPopupBlocked(false);
+      setIsClicked(true);
+      setSecondsLeft(0);
+      setIsTimerComplete(true);
+      toast.info('⏳ Max retries reached. Continuing automatically...', {
+        duration: 3000,
+      });
+      return;
+    }
+
+    setRetryCount(prev => prev + 1);
+    setIsError(false);
+    setShowRetry(false);
+    setPopupBlocked(false);
+    setIsClicked(false);
+    
+    setTimeout(() => {
+      handleClick();
+    }, 1000);
+  };
+
+  // ✅ Handle Fallback
+  useEffect(() => {
+    if (isFallback) {
+      const fallbackTimer = setTimeout(() => {
+        onComplete();
+      }, 5000);
+      return () => clearTimeout(fallbackTimer);
+    }
+  }, [isFallback, onComplete]);
+
+  // ✅ Handle Continue
+  const handleContinue = () => {
+    if (isTimerComplete) {
+      if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
+      onComplete();
+    }
+  };
+
+  const isTimerPaused = isPaused && isClicked && !isTimerComplete && secondsLeft > 0;
+  const progress = ((totalSeconds - secondsLeft) / totalSeconds) * 100;
+
+  // ✅ Show popup blocked state
+  if (popupBlocked && showRetry) {
     return (
-      <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 p-4">
-        <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
-            <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+      <div className={`w-full ${className}`}>
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <span className="font-semibold text-red-700">🔒 Popup Blocked!</span>
           </div>
-          <h3 className="text-lg font-bold text-gray-800 mb-2">Ad Error</h3>
-          <p className="text-sm text-gray-600 mb-4">{adStartError}</p>
+          <p className="text-sm text-red-600 mb-2">
+            Please allow popups for this site to continue.
+          </p>
+          <div className="text-xs text-red-500 bg-red-100 p-2 rounded-lg mb-3">
+            <p>🔹 Click the popup icon in your browser address bar</p>
+            <p>🔹 Select "Always allow popups"</p>
+            <p>🔹 Then click "Retry" below</p>
+          </div>
           <button
-            onClick={() => {
-              setAdStartError(null);
-              adStarted.current = false;
-              setTimeout(() => {
-                window.location.reload();
-              }, 300);
-            }}
-            className="w-full py-3 bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors"
+            onClick={handleRetry}
+            className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2 mx-auto"
           >
-            🔄 Retry Ad
+            <RefreshCw className="w-4 h-4" />
+            Retry ({retryCount + 1}/{maxRetries})
           </button>
         </div>
       </div>
     );
   }
 
-  // ✅ Show error from parent with retry
-  if (errorMessage) {
+  // ✅ Show error state
+  if (isError && showRetry) {
     return (
-      <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 p-4">
-        <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
-            <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+      <div className={`w-full ${className}`}>
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <span className="font-semibold text-red-700">
+              Ad couldn't load. Please try again.
+            </span>
           </div>
-          <h3 className="text-lg font-bold text-gray-800 mb-2">Ad Error</h3>
-          <p className="text-sm text-gray-600 mb-4">{errorMessage}</p>
-          <button
-            onClick={onFinished}
-            className="w-full py-3 bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors"
-          >
-            🔄 Try Again
-          </button>
+          <p className="text-xs text-red-500 mb-3">
+            {retryCount >= maxRetries 
+              ? 'Max retries reached. Continuing automatically...' 
+              : `Attempt ${retryCount + 1}/${maxRetries}`}
+          </p>
+          {retryCount < maxRetries && (
+            <button
+              onClick={handleRetry}
+              className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2 mx-auto"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Retry ({retryCount + 1}/{maxRetries})
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ Show fallback state
+  if (isFallback) {
+    return (
+      <div className={`w-full ${className}`}>
+        <div className="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4 text-center animate-pulse">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Clock className="w-5 h-5 text-yellow-600 animate-spin" />
+            <span className="font-semibold text-yellow-700">
+              Continuing automatically...
+            </span>
+          </div>
+          <p className="text-xs text-yellow-600">
+            Please wait 5 seconds
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 p-0">
-      <div className="w-full h-full bg-black relative flex items-center justify-center">
-        
-        <div 
-          ref={adContainerRef}
-          className="w-full h-full flex items-center justify-center bg-gray-900"
+    <div className={`w-full ${className}`}>
+      {!isClicked ? (
+        <button
+          onClick={handleClick}
+          className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3"
         >
-          {!adReady ? (
-            <div className="text-center text-white">
-              <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-purple-400" />
-              <p className="text-sm font-medium">Loading ad...</p>
-              <p className="text-xs text-white/50 mt-1">Please wait</p>
-            </div>
-          ) : (
-            // ✅ Adsterra ad renders here
-            <div id="adsterra-container" className="w-full h-full" />
-          )}
-        </div>
-
-        <div className="absolute top-4 right-4 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full backdrop-blur-sm font-mono z-10">
-          {canContinue ? '✓ Done' : `${secondsLeft}s`}
-        </div>
-
-        {tabWarning && (
-          <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-4 text-center z-20">
-            <div className="text-white">
-              <p className="text-lg font-semibold">⚠️ Come back to this tab!</p>
-              <p className="text-sm text-white/70 mt-2">The ad timer is paused until you return.</p>
+          <ExternalLink className="w-5 h-5" />
+          {buttonText}
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      ) : !isTimerComplete ? (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Clock className="w-5 h-5 text-amber-600 animate-pulse" />
+            <span className="font-semibold text-amber-700">
+              {isTimerPaused ? '⏸️ Timer paused!' : 'Please complete the ad in the new tab'}
+            </span>
+          </div>
+          
+          <div className="flex items-center justify-center gap-3">
+            <span className="text-2xl font-bold text-amber-600">{secondsLeft}s</span>
+            <div className="flex-1 max-w-[200px] h-2 bg-amber-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-amber-400 to-amber-600 transition-all duration-1000 rounded-full"
+                style={{ width: `${Math.min(100, progress)}%` }}
+              />
             </div>
           </div>
-        )}
-
-        {backWarning && (
-          <div className="absolute bottom-20 left-0 right-0 text-center z-20">
-            <p className="text-red-500 text-sm font-semibold bg-black/70 py-2 px-4 inline-block rounded-full">
-              ⚠️ You must finish watching this ad to continue.
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent z-10">
-        <div className="max-w-sm mx-auto">
-          {errorMessage ? (
-            <p className="text-sm text-red-400 mb-3 text-center font-medium">
-              {errorMessage}
-            </p>
-          ) : (
-            <p className="text-sm text-white/80 mb-3 text-center">
-              {canContinue
-                ? `✅ Ad complete — claim your ${rewardCoins} coins!`
-                : `⏳ Please wait ${secondsLeft}s for ad to finish...`}
+          
+          {isTimerPaused && (
+            <p className="text-xs text-red-500 mt-2 font-bold animate-pulse">
+              ⚠️ Please come back to this tab! Timer is paused.
             </p>
           )}
           
-          <button
-            onClick={onFinished}
-            disabled={!canContinue || claiming}
-            className="w-full py-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity flex items-center justify-center gap-2 text-lg"
-          >
-            {claiming && <Loader2 size={22} className="animate-spin" />}
-            {claiming
-              ? 'Verifying...'
-              : errorMessage
-              ? '🔄 Retry Claim'
-              : canContinue
-              ? `💰 Claim ${rewardCoins} Coins`
-              : `⏳ Please wait (${secondsLeft}s)`}
-          </button>
-          
-          {!canContinue && !errorMessage && (
-            <p className="text-[10px] text-white/40 text-center mt-2">
-              Ad is loading in the background • Do not close this window
+          {!isTimerPaused && (
+            <p className="text-xs text-amber-500 mt-2">
+              ⚠️ Don't close this window • Timer pauses if you switch tabs
             </p>
           )}
         </div>
-      </div>
+      ) : (
+        <button
+          onClick={handleContinue}
+          className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3 animate-pulse"
+        >
+          ✅ Continue to Next Audio
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      )}
     </div>
   );
 }
