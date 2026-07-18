@@ -9,6 +9,7 @@ import LevelProgress from '@/components/tasks/LevelProgress';
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal';
 import TopBanner from '@/components/ads/TopBanner';
 import BottomBanner from '@/components/ads/BottomBanner';
+import AdModal from '@/components/audio/AdModal';
 
 interface StatusResponse {
   locked: boolean;
@@ -44,14 +45,18 @@ export default function BronzeLevelPage() {
   const [adMilestone, setAdMilestone] = useState<number | null>(null);
   const [adClaiming, setAdClaiming] = useState(false);
   const [adError, setAdError] = useState<string | null>(null);
+  const [isProcessingAd, setIsProcessingAd] = useState(false);
+  const [rewardProcessing, setRewardProcessing] = useState(false);
 
   const pendingClaimRef = useRef(false);
   const isResetting = useRef(false);
+  const fetchInterval = useRef<NodeJS.Timeout | null>(null);
+  const mountRef = useRef(true);
 
   // ✅ Safe JSON fetch helper
-  const safeFetch = async (url: string) => {
+  const safeFetch = async (url: string, options?: RequestInit) => {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, options);
       const text = await res.text();
       if (!text) {
         console.warn('⚠️ Empty response from:', url);
@@ -70,11 +75,13 @@ export default function BronzeLevelPage() {
   };
 
   const fetchStatus = useCallback(async () => {
+    if (!mountRef.current) return;
+    
     try {
       const statusData = await safeFetch('/api/tasks/level/status');
       
       if (!statusData) {
-        console.warn('⚠️ No status data received, retrying...');
+        console.warn('⚠️ No status data received');
         return;
       }
 
@@ -90,7 +97,17 @@ export default function BronzeLevelPage() {
 
       setStatus(statusData);
 
-      // ✅ CRITICAL: If ad_required is true, show AdModal immediately
+      // ✅ Check if level is complete and reward claimed
+      if (statusData.level_complete && statusData.reward_claimed) {
+        // ✅ Show completion modal
+        if (!showComplete && !isResetting.current) {
+          setShowComplete(true);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // ✅ If ad_required is true, show AdModal
       if (statusData.ad_required && statusData.milestone) {
         setAdMilestone(statusData.milestone);
         setShowAd(true);
@@ -105,29 +122,34 @@ export default function BronzeLevelPage() {
         setAdMilestone(null);
       }
 
-      if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
+      // ✅ Auto-claim reward when level complete (only once)
+      if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current && !rewardProcessing) {
         pendingClaimRef.current = true;
+        setRewardProcessing(true);
         await claimReward();
+        setRewardProcessing(false);
       }
 
-      if (statusData.level_complete && statusData.reward_claimed) {
-        if (!isResetting.current) {
-          isResetting.current = true;
-          setTimeout(() => {
-            window.location.reload();
-          }, 500);
-        }
-      }
     } catch (err) {
       console.error('fetchStatus error:', err);
       toast.error('Could not load task progress');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showAd, showComplete]);
 
   useEffect(() => {
+    mountRef.current = true;
     fetchStatus();
+
+    // ✅ Cleanup
+    return () => {
+      mountRef.current = false;
+      if (fetchInterval.current) {
+        clearInterval(fetchInterval.current);
+        fetchInterval.current = null;
+      }
+    };
   }, [fetchStatus]);
 
   useEffect(() => {
@@ -145,16 +167,20 @@ export default function BronzeLevelPage() {
   }, [status?.locked, status?.locked_until, fetchStatus]);
 
   const claimReward = async () => {
+    if (pendingClaimRef.current) return;
+    
     try {
-      const res = await fetch('/api/tasks/level/claim', { method: 'POST' });
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
-      if (!res.ok) {
-        toast.error(data.error || 'Could not claim your reward');
+      const data = await safeFetch('/api/tasks/level/claim', { method: 'POST' });
+      
+      if (!data) {
+        toast.error('Could not claim your reward');
         return;
       }
+      
       if (data.success) {
         setShowComplete(true);
+        toast.success('🎉 Level Complete! Reward claimed!');
+        // ✅ Don't reload immediately, let modal handle it
       }
     } catch {
       toast.error('Network error while claiming reward');
@@ -163,44 +189,81 @@ export default function BronzeLevelPage() {
     }
   };
 
-  // ✅ Handle Ad Complete
+  const handleCompleteClose = () => {
+    setShowComplete(false);
+    // ✅ Reload after modal closes to reset level
+    setTimeout(() => {
+      window.location.reload();
+    }, 300);
+  };
+
+  // ✅ Handle Ad Complete with debounce
   const handleAdClaim = async () => {
+    if (isProcessingAd) {
+      console.log('⏳ Ad already processing, please wait...');
+      return;
+    }
+
     setAdClaiming(true);
     setAdError(null);
-    try {
-      const res = await fetch('/api/tasks/level/ads/verify', { method: 'POST' });
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
+    setIsProcessingAd(true);
 
-      if (!res.ok) {
-        setAdError(data.error || 'Could not verify ad. Please try again.');
+    try {
+      const data = await safeFetch('/api/tasks/level/ads/verify', { method: 'POST' });
+
+      if (!data) {
+        setAdError('Could not verify ad. Please try again.');
+        setIsProcessingAd(false);
+        setAdClaiming(false);
         return;
       }
 
+      if (data.alreadyUnlocked || data.alreadyProcessed) {
+        // ✅ Already processed, just update UI
+        setShowAd(false);
+        setAdMilestone(null);
+        await fetchStatus();
+        setIsProcessingAd(false);
+        setAdClaiming(false);
+        return;
+      }
+
+      if (!data.success) {
+        setAdError(data.error || 'Could not verify ad. Please try again.');
+        setIsProcessingAd(false);
+        setAdClaiming(false);
+        return;
+      }
+
+      // ✅ Success - close ad and refresh status
       setShowAd(false);
       setAdMilestone(null);
 
       if (data.isFinalMilestone) {
+        toast.success('🎉 Level Complete! Claiming reward...');
         await claimReward();
       } else {
         toast.success('✅ Ad complete! Continue to next audio.');
       }
+
+      // ✅ Wait before fetching status
+      await new Promise(resolve => setTimeout(resolve, 500));
       await fetchStatus();
-    } catch {
+
+    } catch (error) {
+      console.error('Ad claim error:', error);
       setAdError('Network error, your progress is safe, just tap Retry.');
     } finally {
       setAdClaiming(false);
+      setIsProcessingAd(false);
     }
   };
 
-  const handleCompleteClose = () => {
-    setShowComplete(false);
-    window.location.reload();
+  const handleManualAdRetry = () => {
+    setShowAd(true);
+    setAdError(null);
+    setAdMilestone(status?.milestone || null);
   };
-
-  const isMilestone = status?.current_audio
-    ? MILESTONES.includes(status.completed_audios + 1)
-    : false;
 
   if (loading) {
     return (
@@ -228,21 +291,30 @@ export default function BronzeLevelPage() {
           />
         </div>
 
-        {status?.locked && (
-          <div className="bg-white rounded-2xl border border-amber-100 p-6 text-center">
-            <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-amber-50 flex items-center justify-center text-2xl">
-              🥉
+        {/* ✅ Level Complete - Show appropriate message */}
+        {status?.level_complete && status?.reward_claimed && !showComplete && (
+          <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-6 text-center">
+            <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-green-100 flex items-center justify-center">
+              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
             </div>
-            <p className="font-semibold text-gray-800 mb-1">Bronze Level Complete!</p>
-            <p className="text-sm text-gray-500">
-              Next round in <span className="font-bold text-[#6C63FF]">{countdown || '...'}</span>
+            <h3 className="font-bold text-green-800 text-lg">🎉 Level Complete!</h3>
+            <p className="text-sm text-green-700 mt-1">
+              {status.completed_audios}/{status.total_audios} audios completed
             </p>
+            <button
+              onClick={handleCompleteClose}
+              className="mt-4 px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+            >
+              Continue
+            </button>
           </div>
         )}
 
         {/* ✅ AD REQUIRED CARD */}
-        {status?.ad_required && (
-          <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-6 text-center animate-pulse">
+        {status?.ad_required && !showAd && (
+          <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-6 text-center">
             <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-yellow-100 flex items-center justify-center">
               <AlertCircle className="w-8 h-8 text-yellow-600" />
             </div>
@@ -254,10 +326,7 @@ export default function BronzeLevelPage() {
               ⏳ Progress saved: {status.completed_audios}/{status.total_audios} audios completed
             </p>
             <button
-              onClick={() => {
-                setShowAd(true);
-                setAdError(null);
-              }}
+              onClick={handleManualAdRetry}
               className="mt-4 px-6 py-2 bg-yellow-600 text-white rounded-lg font-semibold hover:bg-yellow-700 transition-colors"
             >
               🔄 Show Ad
@@ -265,8 +334,8 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ✅ Audio Button - Only shown when no ad required */}
-        {!status?.locked && !status?.ad_required && status?.current_audio && (
+        {/* ✅ Audio Button - Only when no ad required and not complete */}
+        {!status?.locked && !status?.ad_required && !status?.level_complete && status?.current_audio && (
           <button
             onClick={() => {
               const audio = status.current_audio;
@@ -284,7 +353,7 @@ export default function BronzeLevelPage() {
               </div>
               <div className="flex-1 text-left">
                 <p className="text-sm text-gray-500">
-                  {isMilestone ? '⭐ Milestone Audio' : 'Next Audio'}
+                  {MILESTONES.includes(status.completed_audios + 1) ? '⭐ Milestone Audio' : 'Next Audio'}
                 </p>
                 <h3 className="font-bold text-gray-800">
                   Audio {status.completed_audios + 1}/{status.total_audios}
@@ -314,21 +383,24 @@ export default function BronzeLevelPage() {
 
       </div>
 
-      {/* ✅ AD MODAL - Force show when ad_required */}
+      {/* ✅ AD MODAL */}
       {showAd && (
         <AdModal
           onFinished={handleAdClaim}
           rewardCoins={adMilestone === 15 ? REWARD_COINS : 0}
           claiming={adClaiming}
           errorMessage={adError}
+          key={`ad-${adMilestone}-${Date.now()}`}
         />
       )}
 
+      {/* ✅ LEVEL COMPLETE MODAL */}
       {showComplete && (
         <LevelCompleteModal
           rewardCoins={REWARD_COINS}
           bonusCoins={BONUS_COINS}
           onClose={handleCompleteClose}
+          key={`complete-${Date.now()}`}
         />
       )}
     </div>

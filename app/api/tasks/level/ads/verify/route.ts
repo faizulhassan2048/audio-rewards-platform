@@ -6,60 +6,108 @@ export const fetchCache = 'force-no-store'
 export const revalidate = 0
 
 const LEVEL_NAME = 'bronze'
-// Keep this a few seconds below AdModal's adDurationSeconds (30s, as set in
-// bronze/page.tsx) to allow for request latency — but high enough that
-// skipping the wait is pointless. IMPORTANT: if you change adDurationSeconds
-// in bronze/page.tsx, update this number too, or claiming will always fail.
 const MIN_AD_SECONDS = 28
 
-// POST — called when the user taps "Claim X Coins" inside AdModal, once the
-// on-screen timer hits 0. This is the only place that clears pending_ad_milestone,
-// and it refuses to clear it if not enough real wall-clock time has passed since
-// /ads/start — so someone calling this directly from devtools without waiting,
-// or trying to fast-forward via tab tricks, can't skip the ad.
-export async function POST() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+// ✅ In-memory cache to prevent duplicate processing
+const processingLocks = new Map<string, boolean>()
 
-  const { data: level, error } = await supabase
-    .from('user_levels')
-    .select('*')
-    .eq('user_id', user.id)
-    .eq('level_name', LEVEL_NAME)
-    .single()
+export async function POST(req: Request) {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  if (error || !level) return NextResponse.json({ error: 'Level not found' }, { status: 404 })
+    // ✅ Create a unique key for this user to prevent race conditions
+    const lockKey = `${user.id}-verify`
+    
+    // ✅ If already processing, wait and return
+    if (processingLocks.get(lockKey)) {
+      console.log('⏳ Verify already in progress, waiting...')
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      return NextResponse.json({ success: true, alreadyProcessed: true })
+    }
+    
+    processingLocks.set(lockKey, true)
 
-  const milestone = level.pending_ad_milestone
-  if (!milestone) {
-    return NextResponse.json({ success: true, alreadyUnlocked: true })
-  }
-  if (!level.ad_session_started_at) {
-    return NextResponse.json({ error: 'Ad was not started. Please reopen the ad.' }, { status: 400 })
-  }
+    const { data: level, error } = await supabase
+      .from('user_levels')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('level_name', LEVEL_NAME)
+      .single()
 
-  const elapsedSeconds = (Date.now() - new Date(level.ad_session_started_at).getTime()) / 1000
-  if (elapsedSeconds < MIN_AD_SECONDS) {
-    return NextResponse.json({ error: 'Ad not fully watched yet.' }, { status: 400 })
-  }
+    if (error || !level) {
+      processingLocks.delete(lockKey)
+      return NextResponse.json({ error: 'Level not found' }, { status: 404 })
+    }
 
-  const unlocked = Array.from(new Set([...(level.ad_milestones_unlocked || []), milestone]))
-  const { error: updateErr } = await supabase
-    .from('user_levels')
-    .update({
+    const milestone = level.pending_ad_milestone
+    if (!milestone) {
+      processingLocks.delete(lockKey)
+      return NextResponse.json({ success: true, alreadyUnlocked: true })
+    }
+
+    // ✅ Check if already unlocked (prevent duplicate)
+    const alreadyUnlocked = level.ad_milestones_unlocked?.includes(milestone)
+    if (alreadyUnlocked) {
+      processingLocks.delete(lockKey)
+      return NextResponse.json({ 
+        success: true, 
+        alreadyUnlocked: true,
+        milestone,
+        isFinalMilestone: milestone === level.total_audios,
+      })
+    }
+
+    if (!level.ad_session_started_at) {
+      processingLocks.delete(lockKey)
+      return NextResponse.json({ error: 'Ad was not started. Please reopen the ad.' }, { status: 400 })
+    }
+
+    const elapsedSeconds = (Date.now() - new Date(level.ad_session_started_at).getTime()) / 1000
+    if (elapsedSeconds < MIN_AD_SECONDS) {
+      processingLocks.delete(lockKey)
+      return NextResponse.json({ error: 'Ad not fully watched yet.' }, { status: 400 })
+    }
+
+    // ✅ Update with lock to prevent race conditions
+    const unlocked = Array.from(new Set([...(level.ad_milestones_unlocked || []), milestone]))
+    const isFinalMilestone = milestone === level.total_audios
+
+    const updatePayload: any = {
       pending_ad_milestone: null,
       ad_session_started_at: null,
       ad_milestones_unlocked: unlocked,
+    }
+
+    // ✅ If final milestone, set completed_at
+    if (isFinalMilestone) {
+      updatePayload.completed_at = new Date().toISOString()
+    }
+
+    const { error: updateErr } = await supabase
+      .from('user_levels')
+      .update(updatePayload)
+      .eq('id', level.id)
+
+    if (updateErr) {
+      processingLocks.delete(lockKey)
+      return NextResponse.json({ error: updateErr.message }, { status: 500 })
+    }
+
+    // ✅ Wait for database commit
+    await new Promise(resolve => setTimeout(resolve, 200))
+
+    processingLocks.delete(lockKey)
+
+    return NextResponse.json({
+      success: true,
+      milestone,
+      milestonesUnlocked: unlocked,
+      isFinalMilestone,
     })
-    .eq('id', level.id)
-
-  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
-
-  return NextResponse.json({
-    success: true,
-    milestone,
-    milestonesUnlocked: unlocked,
-    isFinalMilestone: milestone === level.total_audios,
-  })
+  } catch (error: any) {
+    console.error('Verify error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 }

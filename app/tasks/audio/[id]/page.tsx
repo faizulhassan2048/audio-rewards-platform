@@ -48,6 +48,7 @@ export default function AudioPlayerPage() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
+  const mountRef = useRef(true);
 
   // ✅ Check if this is a milestone from URL
   useEffect(() => {
@@ -56,7 +57,7 @@ export default function AudioPlayerPage() {
     setIsMilestone(milestone);
   }, []);
 
-  // ✅ Tab visibility detection - Pause audio when user switches tab
+  // ✅ Tab visibility detection
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -149,7 +150,6 @@ export default function AudioPlayerPage() {
         let token = null;
         let audioUrl = null;
         
-        // ✅ SAFE JSON parsing for session
         if (sessionRes.ok) {
           const sessionText = await sessionRes.text();
           const sessionData = sessionText ? JSON.parse(sessionText) : {};
@@ -158,7 +158,6 @@ export default function AudioPlayerPage() {
           setSessionToken(token);
         }
 
-        // ✅ SAFE JSON parsing for audio
         if (audioRes.ok) {
           const audioText = await audioRes.text();
           const data = audioText ? JSON.parse(audioText) : null;
@@ -228,9 +227,9 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Handle audio complete with SAFE JSON parsing
+  // ✅ Handle audio complete with correct navigation
   const handleAudioComplete = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || !mountRef.current) return;
     setIsSubmitting(true);
     setAudioComplete(true);
     
@@ -256,7 +255,6 @@ export default function AudioPlayerPage() {
         }),
       });
       
-      // ✅ SAFE JSON parsing
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
       
@@ -280,17 +278,20 @@ export default function AudioPlayerPage() {
         return;
       }
 
+      // ✅ Milestone: show continue button
       if (isMilestone) {
         setShowContinueButton(true);
         setIsSubmitting(false);
         return;
       }
 
+      // ✅ Normal audio: go to next audio
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
+        const isNextMilestone = MILESTONES.includes(nextIndex);
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
         setTimeout(() => {
-          router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}&milestone=${MILESTONES.includes(nextIndex)}`);
+          router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}&milestone=${isNextMilestone}`);
         }, 1000);
       } else {
         router.push('/tasks/bronze');
@@ -383,7 +384,7 @@ export default function AudioPlayerPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP BANNER - 300x250 */}
+        {/* ✅ TOP BANNER */}
         <div className="mb-3">
           <TopBanner />
         </div>
@@ -507,6 +508,7 @@ export default function AudioPlayerPage() {
             </div>
           </div>
 
+          {/* ✅ Milestone: Native Banner + Smartlink */}
           {isMilestone && audioComplete && !smartlinkComplete && (
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
@@ -548,7 +550,7 @@ export default function AudioPlayerPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM BANNER - 320x50 */}
+        {/* ✅ BOTTOM BANNER */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
           <div className="max-w-md mx-auto px-4 pointer-events-auto">
             <BottomBanner />
