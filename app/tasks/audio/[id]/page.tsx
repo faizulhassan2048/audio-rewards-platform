@@ -33,6 +33,28 @@ interface MilestoneGateState {
   levelComplete: boolean;
 }
 
+// ✅ Safe JSON fetch helper
+const safeFetch = async (url: string, options?: RequestInit) => {
+  try {
+    const res = await fetch(url, options);
+    const text = await res.text();
+    if (!text) {
+      console.warn('⚠️ Empty response from:', url);
+      return null;
+    }
+    try {
+      return JSON.parse(text);
+    } catch (parseError) {
+      console.error('❌ JSON parse error for:', url, parseError);
+      console.log('Response text:', text.substring(0, 200));
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Fetch error for:', url, error);
+    return null;
+  }
+};
+
 export default function AudioPlayerPage() {
   const router = useRouter();
   const params = useParams();
@@ -131,15 +153,11 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // ✅ Fetch audio — but FIRST confirm the server actually expects this
-  // audio_id right now. Fixes "wrong/stuck audio" caused by stale links,
-  // back-button, refresh, or leftover tabs no longer matching server state.
+  // ✅ Fetch audio — FIRST confirm server state
   useEffect(() => {
     const fetchAudio = async () => {
       try {
-        const statusRes = await fetch('/api/tasks/level/status');
-        const statusText = await statusRes.text();
-        const statusData = statusText ? JSON.parse(statusText) : null;
+        const statusData = await safeFetch('/api/tasks/level/status');
 
         if (statusData?.ad_required) {
           router.replace('/tasks/bronze');
@@ -290,16 +308,12 @@ export default function AudioPlayerPage() {
           router.push('/tasks/bronze');
           return;
         }
-        // ✅ Any rejection (out of order, session mismatch, etc.) sends the
-        // user to a known-good page instead of leaving them on a dead end.
         toast.error(data.error || 'Could not save progress');
         router.push('/tasks/bronze');
         return;
       }
 
-      // ✅ Milestone hit — show the inline ad-gate right here on this page,
-      // BEFORE treating the level as complete (matters for the 15th audio,
-      // which is both a milestone and the final one).
+      // ✅ Milestone hit — show inline ad-gate
       if (data.show_ad) {
         setMilestoneGate({
           milestone: data.milestone,
@@ -337,7 +351,7 @@ export default function AudioPlayerPage() {
     }
   };
 
-  // ✅ Called only after the server has verified the ad was actually watched.
+  // ✅ Called only after server verifies ad was watched
   const handleMilestoneUnlocked = () => {
     if (!milestoneGate) return;
     if (milestoneGate.levelComplete) {
@@ -541,7 +555,7 @@ export default function AudioPlayerPage() {
             </div>
           </div>
 
-          {/* ✅ Milestone ad-gate — inline, not a full-screen modal */}
+          {/* ✅ Milestone ad-gate — inline */}
           {milestoneGate && (
             <div className="mt-4">
               <MilestoneAdGate

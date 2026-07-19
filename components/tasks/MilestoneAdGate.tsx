@@ -3,15 +3,35 @@
 import { useEffect, useRef, useState } from 'react';
 import NativeBanner from '@/components/ads/NativeBanner';
 import SmartlinkButton from '@/components/ads/SmartlinkButton';
+import { toast } from 'sonner';
 
 const SMARTLINK_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
 
 interface MilestoneAdGateProps {
   milestone: number;
-  // Called only after the server has confirmed (via /ads/verify) that the
-  // ad was actually watched. Never called just because the local timer ran out.
   onUnlocked: () => void;
 }
+
+// ✅ Safe JSON fetch helper
+const safeFetch = async (url: string, options?: RequestInit) => {
+  try {
+    const res = await fetch(url, options);
+    const text = await res.text();
+    if (!text) {
+      console.warn('⚠️ Empty response from:', url);
+      return null;
+    }
+    try {
+      return JSON.parse(text);
+    } catch (parseError) {
+      console.error('❌ JSON parse error for:', url, parseError);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Fetch error for:', url, error);
+    return null;
+  }
+};
 
 export default function MilestoneAdGate({ milestone, onUnlocked }: MilestoneAdGateProps) {
   const [verifying, setVerifying] = useState(false);
@@ -20,49 +40,54 @@ export default function MilestoneAdGate({ milestone, onUnlocked }: MilestoneAdGa
 
   const startedRef = useRef(false);
 
-  // ✅ Mark the ad-gate as started server-side as soon as this shows up —
-  // whether that's right after finishing the milestone audio, or later on
-  // the bronze hub page if the user left mid-way and came back.
+  // ✅ Mark the ad-gate as started server-side
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-    fetch('/api/tasks/level/ads/start', { method: 'POST' }).catch(() => {});
+    
+    safeFetch('/api/tasks/level/ads/start', { method: 'POST' }).catch(() => {});
 
-    // ✅ If the user was sent to the ad in the SAME tab (popup was blocked)
-    // and has now navigated back here, skip straight to the verify step —
-    // no need to make them sit through the popup UI again.
+    // ✅ Same-tab fallback: user came back from ad
     try {
       if (sessionStorage.getItem('milestone_ad_pending') === '1') {
         sessionStorage.removeItem('milestone_ad_pending');
         setSkipToVerify(true);
       }
-    } catch { /* sessionStorage unavailable — ignore */ }
+    } catch { /* sessionStorage unavailable */ }
   }, []);
 
   const verify = async () => {
     setVerifying(true);
     setVerifyError(null);
     try {
-      const res = await fetch('/api/tasks/level/ads/verify', { method: 'POST' });
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
+      const data = await safeFetch('/api/tasks/level/ads/verify', { method: 'POST' });
 
-      if (!res.ok) {
-        // ✅ Most likely cause: user clicked through faster than the
-        // server's minimum watch time. Retry once automatically after a
-        // short wait instead of showing a scary error immediately.
+      if (!data) {
+        setVerifyError('Could not verify ad. Please try again.');
+        setVerifying(false);
+        return;
+      }
+
+      if (data.alreadyUnlocked || data.alreadyProcessed || data.success) {
+        toast.success('✅ Ad verified! Continuing...');
+        onUnlocked();
+        setVerifying(false);
+        return;
+      }
+
+      // ✅ Not enough time? Retry automatically after 6 seconds
+      if (!data.success) {
         setVerifyError('Just a moment, confirming your ad...');
         setTimeout(async () => {
           try {
-            const retryRes = await fetch('/api/tasks/level/ads/verify', { method: 'POST' });
-            if (retryRes.ok) {
+            const retryData = await safeFetch('/api/tasks/level/ads/verify', { method: 'POST' });
+            if (retryData?.success) {
               setVerifyError(null);
+              toast.success('✅ Ad verified! Continuing...');
               onUnlocked();
               return;
             }
-            const retryText = await retryRes.text();
-            const retryData = retryText ? JSON.parse(retryText) : {};
-            setVerifyError(retryData.error || 'Could not verify ad. Please try again.');
+            setVerifyError(retryData?.error || 'Could not verify ad. Please try again.');
           } catch {
             setVerifyError('Network error. Please try again.');
           } finally {
@@ -71,14 +96,10 @@ export default function MilestoneAdGate({ milestone, onUnlocked }: MilestoneAdGa
         }, 6000);
         return;
       }
-
-      onUnlocked();
     } catch {
       setVerifyError('Network error verifying ad. Please try again.');
       setVerifying(false);
-      return;
     }
-    setVerifying(false);
   };
 
   return (
