@@ -7,8 +7,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import TopBanner from '@/components/ads/TopBanner';
 import BottomBanner from '@/components/ads/BottomBanner';
-import NativeBanner from '@/components/ads/NativeBanner';
-import SmartlinkButton from '@/components/ads/SmartlinkButton';
+import MilestoneAdGate from '@/components/tasks/MilestoneAdGate';
 
 interface AudioData {
   id: string;
@@ -20,14 +19,25 @@ interface AudioData {
   total: number;
 }
 
-const MILESTONES = [5, 10, 15];
-const SMARTLINK_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
+interface NextAudioRef {
+  id: string;
+  title: string;
+  audio_url: string;
+  thumbnail_url?: string | null;
+  duration_seconds: number;
+}
+
+interface MilestoneGateState {
+  milestone: number;
+  nextAudio: NextAudioRef | null;
+  levelComplete: boolean;
+}
 
 export default function AudioPlayerPage() {
   const router = useRouter();
   const params = useParams();
   const audioId = params.id as string;
-  
+
   const [loading, setLoading] = useState(true);
   const [audio, setAudio] = useState<AudioData | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -38,24 +48,15 @@ export default function AudioPlayerPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [audioLoaded, setAudioLoaded] = useState(false);
-  const [isMilestone, setIsMilestone] = useState(false);
-  const [smartlinkComplete, setSmartlinkComplete] = useState(false);
-  const [showContinueButton, setShowContinueButton] = useState(false);
   const [tabWarning, setTabWarning] = useState(false);
   const [volumeWarning, setVolumeWarning] = useState(false);
   const [pausedBySystem, setPausedBySystem] = useState(false);
-  
+  const [milestoneGate, setMilestoneGate] = useState<MilestoneGateState | null>(null);
+
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
-
-  // ✅ Check if this is a milestone from URL
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const milestone = params.get('milestone') === 'true';
-    setIsMilestone(milestone);
-  }, []);
 
   // ✅ Tab visibility detection
   useEffect(() => {
@@ -130,13 +131,41 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // ✅ Fetch audio data with SAFE JSON parsing
+  // ✅ Fetch audio — but FIRST confirm the server actually expects this
+  // audio_id right now. Fixes "wrong/stuck audio" caused by stale links,
+  // back-button, refresh, or leftover tabs no longer matching server state.
   useEffect(() => {
     const fetchAudio = async () => {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const index = parseInt(params.get('index') || '1');
-        const total = parseInt(params.get('total') || '15');
+        const statusRes = await fetch('/api/tasks/level/status');
+        const statusText = await statusRes.text();
+        const statusData = statusText ? JSON.parse(statusText) : null;
+
+        if (statusData?.ad_required) {
+          router.replace('/tasks/bronze');
+          return;
+        }
+
+        if (statusData?.level_complete) {
+          router.replace('/tasks/bronze?complete=true');
+          return;
+        }
+
+        if (!statusData?.current_audio || statusData.current_audio.id !== audioId) {
+          if (statusData?.current_audio?.id) {
+            const correctIndex = (statusData.completed_audios || 0) + 1;
+            const correctTotal = statusData.total_audios || 15;
+            router.replace(
+              `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${correctTotal}`
+            );
+          } else {
+            router.replace('/tasks/bronze');
+          }
+          return;
+        }
+
+        const index = statusData.completed_audios + 1;
+        const total = statusData.total_audios || 15;
 
         const [sessionRes, audioRes] = await Promise.all([
           fetch('/api/audio/session', {
@@ -149,7 +178,7 @@ export default function AudioPlayerPage() {
 
         let token = null;
         let audioUrl = null;
-        
+
         if (sessionRes.ok) {
           const sessionText = await sessionRes.text();
           const sessionData = sessionText ? JSON.parse(sessionText) : {};
@@ -162,11 +191,7 @@ export default function AudioPlayerPage() {
           const audioText = await audioRes.text();
           const data = audioText ? JSON.parse(audioText) : null;
           if (data) {
-            setAudio({
-              ...data,
-              index: index,
-              total: total
-            });
+            setAudio({ ...data, index, total });
           }
         } else if (audioUrl) {
           setAudio({
@@ -174,13 +199,14 @@ export default function AudioPlayerPage() {
             title: `Audio ${index}`,
             audio_url: audioUrl,
             duration_seconds: 0,
-            index: index,
-            total: total
+            index,
+            total,
           });
         }
       } catch (error) {
         console.error('Error fetching audio:', error);
         toast.error('Could not load audio');
+        router.replace('/tasks/bronze');
       } finally {
         setLoading(false);
       }
@@ -205,10 +231,10 @@ export default function AudioPlayerPage() {
       await fetch('/api/audio/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          sessionToken, 
-          progressPercent, 
-          clientTimestamp: Date.now() 
+        body: JSON.stringify({
+          sessionToken,
+          progressPercent,
+          clientTimestamp: Date.now(),
         }),
       });
     } catch { /* non-fatal */ }
@@ -227,46 +253,60 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Handle audio complete with correct navigation
+  // ✅ Handle audio complete
   const handleAudioComplete = async () => {
     if (isSubmitting || !mountRef.current) return;
     setIsSubmitting(true);
     setAudioComplete(true);
-    
+
     if (sessionToken) {
       await fetch('/api/audio/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          sessionToken, 
-          progressPercent: 100, 
-          clientTimestamp: Date.now() 
+        body: JSON.stringify({
+          sessionToken,
+          progressPercent: 100,
+          clientTimestamp: Date.now(),
         }),
       }).catch(() => {});
     }
-    
+
     try {
       const res = await fetch('/api/tasks/level/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           audio_id: audioId,
-          session_token: sessionToken
+          session_token: sessionToken,
         }),
       });
-      
+
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
-      
+
       if (!res.ok) {
         if (data.error === 'AD_REQUIRED') {
           toast.info('📢 Complete ad to continue');
-          router.push(`/tasks/bronze?ad=${data.milestone}`);
+          router.push('/tasks/bronze');
           return;
         }
+        // ✅ Any rejection (out of order, session mismatch, etc.) sends the
+        // user to a known-good page instead of leaving them on a dead end.
         toast.error(data.error || 'Could not save progress');
+        router.push('/tasks/bronze');
+        return;
+      }
+
+      // ✅ Milestone hit — show the inline ad-gate right here on this page,
+      // BEFORE treating the level as complete (matters for the 15th audio,
+      // which is both a milestone and the final one).
+      if (data.show_ad) {
+        setMilestoneGate({
+          milestone: data.milestone,
+          nextAudio: data.next_audio || null,
+          levelComplete: !!data.level_complete,
+        });
         setIsSubmitting(false);
-        setAudioComplete(false);
         return;
       }
 
@@ -278,20 +318,11 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // ✅ Milestone: show continue button
-      if (isMilestone) {
-        setShowContinueButton(true);
-        setIsSubmitting(false);
-        return;
-      }
-
-      // ✅ Normal audio: go to next audio
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
-        const isNextMilestone = MILESTONES.includes(nextIndex);
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
         setTimeout(() => {
-          router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}&milestone=${isNextMilestone}`);
+          router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
         }, 1000);
       } else {
         router.push('/tasks/bronze');
@@ -306,18 +337,20 @@ export default function AudioPlayerPage() {
     }
   };
 
-  // ✅ Handle Smartlink Complete
-  const handleSmartlinkComplete = () => {
-    setSmartlinkComplete(true);
-    setShowContinueButton(false);
-    
-    const nextIndex = (audio?.index || 0) + 1;
-    if (nextIndex <= (audio?.total || 15)) {
-      const isNextMilestone = MILESTONES.includes(nextIndex);
-      router.push(`/tasks/audio/${audio?.id}?index=${nextIndex}&total=${audio?.total || 15}&milestone=${isNextMilestone}`);
-    } else {
-      router.push('/tasks/bronze');
+  // ✅ Called only after the server has verified the ad was actually watched.
+  const handleMilestoneUnlocked = () => {
+    if (!milestoneGate) return;
+    if (milestoneGate.levelComplete) {
+      toast.success('🎉 Level Complete!');
+      router.push('/tasks/bronze?complete=true');
+      return;
     }
+    if (milestoneGate.nextAudio) {
+      const nextIndex = (audio?.index || 0) + 1;
+      router.push(`/tasks/audio/${milestoneGate.nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
+      return;
+    }
+    router.push('/tasks/bronze');
   };
 
   // Toggle play/pause
@@ -341,7 +374,7 @@ export default function AudioPlayerPage() {
         audioRef.current.volume = 0.15;
         setVolumeWarning(false);
       }
-      
+
       await audioRef.current.play();
       setIsPlaying(true);
       setTabWarning(false);
@@ -390,8 +423,8 @@ export default function AudioPlayerPage() {
         </div>
 
         {/* Back Button */}
-        <Link 
-          href="/tasks/bronze" 
+        <Link
+          href="/tasks/bronze"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6C63FF] mb-3 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Level
@@ -417,18 +450,18 @@ export default function AudioPlayerPage() {
         </div>
 
         <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-5">
-          <div 
+          <div
             className="h-full bg-gradient-to-r from-[#6C63FF] to-purple-500 transition-all duration-300 rounded-full"
             style={{ width: `${progress}%` }}
           />
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5">
-          
+
           <div className="aspect-video bg-gradient-to-br from-purple-100 to-indigo-100 rounded-xl mb-4 flex items-center justify-center relative overflow-hidden">
             {audio.thumbnail_url ? (
-              <img 
-                src={audio.thumbnail_url} 
+              <img
+                src={audio.thumbnail_url}
                 alt={audio.title}
                 className="w-full h-full object-cover"
               />
@@ -438,7 +471,7 @@ export default function AudioPlayerPage() {
                 <p className="text-sm text-gray-400 font-medium">Audio {audio.index}</p>
               </div>
             )}
-            
+
             <button
               onClick={togglePlay}
               disabled={audioComplete}
@@ -508,27 +541,20 @@ export default function AudioPlayerPage() {
             </div>
           </div>
 
-          {/* ✅ Milestone: Native Banner + Smartlink */}
-          {isMilestone && audioComplete && !smartlinkComplete && (
-            <div className="mt-4 space-y-4">
-              <div className="border-t border-gray-200 pt-4">
-                <p className="text-sm font-semibold text-purple-600 text-center mb-2">
-                  ⭐ Milestone Audio Completed!
-                </p>
-                <NativeBanner />
-              </div>
-              <SmartlinkButton 
-                smartlinkUrl={SMARTLINK_URL}
-                onComplete={handleSmartlinkComplete}
-                buttonText="Continue to Next Audio"
+          {/* ✅ Milestone ad-gate — inline, not a full-screen modal */}
+          {milestoneGate && (
+            <div className="mt-4">
+              <MilestoneAdGate
+                milestone={milestoneGate.milestone}
+                onUnlocked={handleMilestoneUnlocked}
               />
             </div>
           )}
 
-          {audioComplete && !isMilestone && (
+          {audioComplete && !milestoneGate && (
             <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl text-center">
               <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
-              <p className="text-xs text-green-600">Moving to next audio...</p>
+              <p className="text-xs text-green-600">Moving on...</p>
             </div>
           )}
 

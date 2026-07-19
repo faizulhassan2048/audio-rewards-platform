@@ -3,9 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 
 const LEVEL_NAME = 'bronze'
 
-// POST — called the moment the AdModal actually mounts and starts its timer.
-// Records when the ad supposedly started, so /verify can check enough real
-// time actually passed (see MIN_AD_SECONDS there).
 export async function POST() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -23,12 +20,24 @@ export async function POST() {
     return NextResponse.json({ error: 'No ad is currently required' }, { status: 400 })
   }
 
-  const { error: updateErr } = await supabase
-    .from('user_levels')
-    .update({ ad_session_started_at: new Date().toISOString() })
-    .eq('id', level.id)
+  // ✅ FIX: Only set timestamp if not already set
+  let updateData: any = {}
+  if (!level.ad_session_started_at) {
+    updateData.ad_session_started_at = new Date().toISOString()
+  }
 
-  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+  if (Object.keys(updateData).length > 0) {
+    const { error: updateErr } = await supabase
+      .from('user_levels')
+      .update(updateData)
+      .eq('id', level.id)
 
-  return NextResponse.json({ success: true, milestone: level.pending_ad_milestone })
+    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ 
+    success: true, 
+    milestone: level.pending_ad_milestone,
+    alreadyStarted: !!level.ad_session_started_at // ✅ Tell frontend if already started
+  })
 }

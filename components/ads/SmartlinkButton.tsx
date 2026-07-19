@@ -27,7 +27,7 @@ export default function SmartlinkButton({
   const [showRetry, setShowRetry] = useState(false);
   const [popupBlocked, setPopupBlocked] = useState(false);
   const [autoCompleteTriggered, setAutoCompleteTriggered] = useState(false);
-  
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const autoCompleteRef = useRef<NodeJS.Timeout | null>(null);
   const maxRetries = 3;
@@ -42,12 +42,12 @@ export default function SmartlinkButton({
     };
   }, []);
 
-  // ✅ Auto-complete after 30 seconds
+  // ✅ Auto-complete after 30 seconds — safety net so nobody ever gets
+  // permanently stuck here even if the ad or popup misbehaves.
   useEffect(() => {
     if (isClicked && !isTimerComplete && secondsLeft > 0 && !autoCompleteTriggered) {
       autoCompleteRef.current = setTimeout(() => {
         if (!isTimerComplete && secondsLeft > 0) {
-          console.log('⏰ Auto-completing smartlink after 30s timeout');
           setAutoCompleteTriggered(true);
           setSecondsLeft(0);
           setIsTimerComplete(true);
@@ -55,7 +55,7 @@ export default function SmartlinkButton({
           toast.success('✅ Ad completed automatically. Continuing...');
         }
       }, AUTO_COMPLETE_TIMEOUT);
-      
+
       return () => {
         if (autoCompleteRef.current) clearTimeout(autoCompleteRef.current);
       };
@@ -88,7 +88,7 @@ export default function SmartlinkButton({
   // ✅ Start timer
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
-    
+
     timerRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
         if (document.hidden) return prev;
@@ -108,11 +108,8 @@ export default function SmartlinkButton({
   const checkPopupBlocked = (newWindow: Window | null) => {
     if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
       setPopupBlocked(true);
-      setIsError(true);
-      setShowRetry(true);
-      toast.error('⚠️ Popup blocked! Please allow popups for this site.', {
-        duration: 5000,
-      });
+      setIsError(false);
+      setShowRetry(false);
       return true;
     }
     return false;
@@ -123,10 +120,10 @@ export default function SmartlinkButton({
     if (isClicked) return;
 
     setPopupBlocked(false);
-    
+
     try {
       const newWindow = window.open(smartlinkUrl, '_blank', 'noopener');
-      
+
       if (checkPopupBlocked(newWindow)) {
         return;
       }
@@ -142,12 +139,21 @@ export default function SmartlinkButton({
     } catch (error) {
       console.error('❌ Error opening smartlink:', error);
       setPopupBlocked(true);
-      setIsError(true);
-      setShowRetry(true);
     }
   };
 
-  // ✅ Handle Retry
+  // ✅ Mobile-friendly fallback: if the popup was blocked, open the ad in
+  // THIS tab instead of forcing the user to fiddle with browser settings.
+  // We remember that we're mid-ad so that when the user comes back
+  // (browser back button), the app can skip straight to the verify step.
+  const handleSameTabFallback = () => {
+    try {
+      sessionStorage.setItem('milestone_ad_pending', '1');
+    } catch { /* ignore */ }
+    window.location.href = smartlinkUrl;
+  };
+
+  // ✅ Handle Retry (popup attempt again)
   const handleRetry = () => {
     if (retryCount >= maxRetries) {
       setIsFallback(true);
@@ -168,7 +174,7 @@ export default function SmartlinkButton({
     setShowRetry(false);
     setPopupBlocked(false);
     setIsClicked(false);
-    
+
     setTimeout(() => {
       handleClick();
     }, 1000);
@@ -195,29 +201,31 @@ export default function SmartlinkButton({
   const isTimerPaused = isPaused && isClicked && !isTimerComplete && secondsLeft > 0;
   const progress = ((totalSeconds - secondsLeft) / totalSeconds) * 100;
 
-  // ✅ Show popup blocked state
-  if (popupBlocked && showRetry) {
+  // ✅ Show popup blocked state — with a same-tab fallback, no dead end.
+  if (popupBlocked) {
     return (
       <div className={`w-full ${className}`}>
-        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center">
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            <span className="font-semibold text-red-700">🔒 Popup Blocked!</span>
+            <AlertCircle className="w-5 h-5 text-amber-600" />
+            <span className="font-semibold text-amber-700">Popup Blocked</span>
           </div>
-          <p className="text-sm text-red-600 mb-2">
-            Please allow popups for this site to continue.
+          <p className="text-sm text-amber-600 mb-3">
+            No problem — you can continue right here instead.
           </p>
-          <div className="text-xs text-red-500 bg-red-100 p-2 rounded-lg mb-3">
-            <p>🔹 Click the popup icon in your browser address bar</p>
-            <p>🔹 Select "Always allow popups"</p>
-            <p>🔹 Then click "Retry" below</p>
-          </div>
           <button
-            onClick={handleRetry}
-            className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2 mx-auto"
+            onClick={handleSameTabFallback}
+            className="w-full py-3 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition-colors flex items-center justify-center gap-2 mb-2"
           >
-            <RefreshCw className="w-4 h-4" />
-            Retry ({retryCount + 1}/{maxRetries})
+            <ExternalLink className="w-4 h-4" />
+            Continue in This Tab
+          </button>
+          <button
+            onClick={() => { setPopupBlocked(false); handleClick(); }}
+            className="w-full py-2 text-amber-700 text-sm font-medium hover:underline flex items-center justify-center gap-1"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Try popup again instead
           </button>
         </div>
       </div>
@@ -236,8 +244,8 @@ export default function SmartlinkButton({
             </span>
           </div>
           <p className="text-xs text-red-500 mb-3">
-            {retryCount >= maxRetries 
-              ? 'Max retries reached. Continuing automatically...' 
+            {retryCount >= maxRetries
+              ? 'Max retries reached. Continuing automatically...'
               : `Attempt ${retryCount + 1}/${maxRetries}`}
           </p>
           {retryCount < maxRetries && (
@@ -286,7 +294,7 @@ export default function SmartlinkButton({
             <span className="text-sm sm:text-base">{buttonText}</span>
             <ChevronRight className="w-5 h-5" />
           </button>
-          
+
           {/* ✅ User Instructions */}
           <div className="mt-2.5 bg-blue-50 border border-blue-100 rounded-lg p-2.5">
             <div className="flex items-start gap-2">
@@ -374,7 +382,7 @@ export default function SmartlinkButton({
           className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3 animate-pulse"
         >
           <span>✅</span>
-          Continue to Next Audio
+          {buttonText}
           <ChevronRight className="w-5 h-5" />
         </button>
       )}

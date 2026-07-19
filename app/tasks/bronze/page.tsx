@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LevelProgress from '@/components/tasks/LevelProgress';
 import LevelCompleteModal from '@/components/tasks/LevelCompleteModal';
+import MilestoneAdGate from '@/components/tasks/MilestoneAdGate';
 import TopBanner from '@/components/ads/TopBanner';
 import BottomBanner from '@/components/ads/BottomBanner';
 
@@ -68,7 +69,7 @@ export default function BronzeLevelPage() {
   const fetchStatus = useCallback(async () => {
     try {
       const statusData = await safeFetch('/api/tasks/level/status');
-      
+
       if (!statusData) {
         console.warn('⚠️ No status data received');
         return;
@@ -146,6 +147,14 @@ export default function BronzeLevelPage() {
     }
   };
 
+  // ✅ Fallback path: user left the audio page mid ad-gate (closed tab,
+  // refreshed, pressed back). Status now reports ad_required with no
+  // current_audio — show the exact same inline ad-gate here so they're
+  // never stuck without a way forward.
+  const handleMilestoneUnlocked = async () => {
+    await fetchStatus();
+  };
+
   const handleCompleteClose = () => {
     setShowComplete(false);
     setTimeout(() => {
@@ -216,14 +225,24 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
+        {/* ✅ Fallback inline ad-gate — only shows if the user ended up here
+            while an ad was still pending (didn't finish it on the audio page) */}
+        {status?.ad_required && status?.milestone && (
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
+            <MilestoneAdGate
+              milestone={status.milestone}
+              onUnlocked={handleMilestoneUnlocked}
+            />
+          </div>
+        )}
+
         {/* ✅ Audio Button - Only shown when no ad required and not complete */}
         {!status?.locked && !status?.ad_required && !status?.level_complete && status?.current_audio && (
           <button
             onClick={() => {
               const audio = status.current_audio;
               if (audio) {
-                const isMilestone = MILESTONES.includes(status.completed_audios + 1);
-                const url = `/tasks/audio/${audio.id}?index=${status.completed_audios + 1}&total=${status.total_audios}&milestone=${isMilestone}`;
+                const url = `/tasks/audio/${audio.id}?index=${status.completed_audios + 1}&total=${status.total_audios}`;
                 window.location.href = url;
               }
             }}
@@ -235,7 +254,7 @@ export default function BronzeLevelPage() {
               </div>
               <div className="flex-1 text-left">
                 <p className="text-sm text-gray-500">
-                  {MILESTONES.includes(status.completed_audios + 1) ? '⭐ Milestone Audio' : 'Next Audio'}
+                  {isMilestone ? '⭐ Milestone Audio' : 'Next Audio'}
                 </p>
                 <h3 className="font-bold text-gray-800">
                   Audio {status.completed_audios + 1}/{status.total_audios}
