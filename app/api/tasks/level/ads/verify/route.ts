@@ -6,7 +6,7 @@ export const fetchCache = 'force-no-store'
 export const revalidate = 0
 
 const LEVEL_NAME = 'bronze'
-const MIN_AD_SECONDS = 28
+const MIN_AD_SECONDS = 15
 
 // ✅ In-memory cache to prevent duplicate processing
 const processingLocks = new Map<string, boolean>()
