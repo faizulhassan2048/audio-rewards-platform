@@ -6,24 +6,22 @@ export const fetchCache = 'force-no-store'
 export const revalidate = 0
 
 const LEVEL_NAME = 'bronze'
-const MIN_AD_SECONDS = 15
+const MIN_AD_SECONDS = 15 // ✅ Reduced from 28 to 15 (matches smartlink timer)
 
-// ✅ In-memory cache to prevent duplicate processing
+// ✅ In-memory processing lock to prevent duplicate verification
 const processingLocks = new Map<string, boolean>()
 
-export async function POST(req: Request) {
+export async function POST() {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // ✅ Create a unique key for this user to prevent race conditions
     const lockKey = `${user.id}-verify`
     
-    // ✅ If already processing, wait and return
+    // ✅ If already processing, return immediately (prevent duplicate)
     if (processingLocks.get(lockKey)) {
-      console.log('⏳ Verify already in progress, waiting...')
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      console.log('⏳ Verify already in progress, returning cached result')
       return NextResponse.json({ success: true, alreadyProcessed: true })
     }
     
@@ -47,7 +45,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, alreadyUnlocked: true })
     }
 
-    // ✅ Check if already unlocked (prevent duplicate)
+    // ✅ Check if already unlocked
     const alreadyUnlocked = level.ad_milestones_unlocked?.includes(milestone)
     if (alreadyUnlocked) {
       processingLocks.delete(lockKey)
@@ -61,13 +59,17 @@ export async function POST(req: Request) {
 
     if (!level.ad_session_started_at) {
       processingLocks.delete(lockKey)
-      return NextResponse.json({ error: 'Ad was not started. Please reopen the ad.' }, { status: 400 })
+      return NextResponse.json({ error: 'Ad was not started' }, { status: 400 })
     }
 
     const elapsedSeconds = (Date.now() - new Date(level.ad_session_started_at).getTime()) / 1000
     if (elapsedSeconds < MIN_AD_SECONDS) {
       processingLocks.delete(lockKey)
-      return NextResponse.json({ error: 'Ad not fully watched yet.' }, { status: 400 })
+      return NextResponse.json({ 
+        error: `Ad not fully watched yet. Please wait ${Math.ceil(MIN_AD_SECONDS - elapsedSeconds)}s`,
+        elapsed: elapsedSeconds,
+        required: MIN_AD_SECONDS,
+      }, { status: 400 })
     }
 
     // ✅ Update with lock to prevent race conditions
@@ -80,7 +82,6 @@ export async function POST(req: Request) {
       ad_milestones_unlocked: unlocked,
     }
 
-    // ✅ If final milestone, set completed_at
     if (isFinalMilestone) {
       updatePayload.completed_at = new Date().toISOString()
     }
@@ -96,7 +97,7 @@ export async function POST(req: Request) {
     }
 
     // ✅ Wait for database commit
-    await new Promise(resolve => setTimeout(resolve, 200))
+    await new Promise(resolve => setTimeout(resolve, 300))
 
     processingLocks.delete(lockKey)
 

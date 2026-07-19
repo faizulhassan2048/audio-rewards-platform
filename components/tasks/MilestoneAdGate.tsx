@@ -25,6 +25,7 @@ const safeFetch = async (url: string, options?: RequestInit) => {
       return JSON.parse(text);
     } catch (parseError) {
       console.error('❌ JSON parse error for:', url, parseError);
+      console.log('Response text:', text.substring(0, 200));
       return null;
     }
   } catch (error) {
@@ -37,8 +38,10 @@ export default function MilestoneAdGate({ milestone, onUnlocked }: MilestoneAdGa
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [skipToVerify, setSkipToVerify] = useState(false);
+  const [isVerifyingAd, setIsVerifyingAd] = useState(false);
 
   const startedRef = useRef(false);
+  const verifyInProgress = useRef(false);
 
   // ✅ Mark the ad-gate as started server-side
   useEffect(() => {
@@ -47,7 +50,6 @@ export default function MilestoneAdGate({ milestone, onUnlocked }: MilestoneAdGa
     
     safeFetch('/api/tasks/level/ads/start', { method: 'POST' }).catch(() => {});
 
-    // ✅ Same-tab fallback: user came back from ad
     try {
       if (sessionStorage.getItem('milestone_ad_pending') === '1') {
         sessionStorage.removeItem('milestone_ad_pending');
@@ -56,48 +58,79 @@ export default function MilestoneAdGate({ milestone, onUnlocked }: MilestoneAdGa
     } catch { /* sessionStorage unavailable */ }
   }, []);
 
+  // ✅ Verify with debounce to prevent duplicate calls
   const verify = async () => {
+    // ✅ Prevent multiple simultaneous verify calls
+    if (verifyInProgress.current) {
+      console.log('⏳ Verify already in progress, skipping...');
+      return;
+    }
+    
+    verifyInProgress.current = true;
     setVerifying(true);
     setVerifyError(null);
+
     try {
+      console.log('🔍 Verifying ad for milestone:', milestone);
+      
+      // ✅ First verify the ad
       const data = await safeFetch('/api/tasks/level/ads/verify', { method: 'POST' });
 
       if (!data) {
         setVerifyError('Could not verify ad. Please try again.');
+        verifyInProgress.current = false;
         setVerifying(false);
         return;
       }
 
+      // ✅ If already unlocked or success
       if (data.alreadyUnlocked || data.alreadyProcessed || data.success) {
-        toast.success('✅ Ad verified! Continuing...');
-        onUnlocked();
+        toast.success('✅ Ad verified!');
+        
+        // ✅ IMPORTANT: Wait for database to commit before proceeding
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
         setVerifying(false);
+        verifyInProgress.current = false;
+        onUnlocked();
         return;
       }
 
-      // ✅ Not enough time? Retry automatically after 6 seconds
+      // ✅ Not enough time? Retry after delay
       if (!data.success) {
         setVerifyError('Just a moment, confirming your ad...');
+        
+        // ✅ Retry after 5 seconds
         setTimeout(async () => {
           try {
+            console.log('🔄 Retrying verify...');
             const retryData = await safeFetch('/api/tasks/level/ads/verify', { method: 'POST' });
-            if (retryData?.success) {
+            
+            if (retryData?.success || retryData?.alreadyUnlocked) {
               setVerifyError(null);
-              toast.success('✅ Ad verified! Continuing...');
+              toast.success('✅ Ad verified!');
+              await new Promise(resolve => setTimeout(resolve, 500));
+              verifyInProgress.current = false;
+              setVerifying(false);
               onUnlocked();
               return;
             }
+            
             setVerifyError(retryData?.error || 'Could not verify ad. Please try again.');
-          } catch {
+          } catch (err) {
+            console.error('Retry verify error:', err);
             setVerifyError('Network error. Please try again.');
           } finally {
+            verifyInProgress.current = false;
             setVerifying(false);
           }
-        }, 6000);
+        }, 5000);
         return;
       }
-    } catch {
+    } catch (error) {
+      console.error('Verify error:', error);
       setVerifyError('Network error verifying ad. Please try again.');
+      verifyInProgress.current = false;
       setVerifying(false);
     }
   };
@@ -114,16 +147,16 @@ export default function MilestoneAdGate({ milestone, onUnlocked }: MilestoneAdGa
       {skipToVerify ? (
         <button
           onClick={verify}
-          disabled={verifying}
+          disabled={verifying || isVerifyingAd}
           className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-60"
         >
-          {verifying ? 'Verifying...' : '✅ I completed the ad — Continue'}
+          {verifying ? '⏳ Verifying...' : '✅ I completed the ad — Continue'}
         </button>
       ) : (
         <SmartlinkButton
           smartlinkUrl={SMARTLINK_URL}
           onComplete={verify}
-          buttonText={verifying ? 'Verifying...' : 'Continue to Next Audio'}
+          buttonText={verifying ? '⏳ Verifying...' : 'Continue to Next Audio'}
         />
       )}
 
