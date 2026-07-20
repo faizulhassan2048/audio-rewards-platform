@@ -38,7 +38,6 @@ export default function SilverParagraphPage() {
 
   const mountRef = useRef(true);
 
-  // ✅ Fetch paragraph
   useEffect(() => {
     const fetchParagraph = async () => {
       try {
@@ -63,7 +62,6 @@ export default function SilverParagraphPage() {
           total: total
         });
 
-        // Get progress
         const statusRes = await fetch('/api/tasks/silver/status');
         const statusText = await statusRes.text();
         const statusData = statusText ? JSON.parse(statusText) : null;
@@ -82,13 +80,11 @@ export default function SilverParagraphPage() {
     fetchParagraph();
   }, [paragraphId, router]);
 
-  // ✅ Handle submit
   const handleSubmit = async () => {
     if (isSubmitting || !paragraph) return;
     setIsSubmitting(true);
     setIsSubmitted(true);
 
-    // Check if answer is correct
     const correct = userAnswer.trim().toLowerCase() === paragraph.missing_word.toLowerCase();
     setIsCorrect(correct);
 
@@ -101,7 +97,6 @@ export default function SilverParagraphPage() {
 
     toast.success('✅ Correct!');
 
-    // Save progress
     try {
       const res = await fetch('/api/tasks/silver/complete', {
         method: 'POST',
@@ -129,14 +124,12 @@ export default function SilverParagraphPage() {
 
       setCompletedCount(data.completed_paragraphs || paragraph.paragraph_number);
 
-      // ✅ Show native ad on milestones
       if (data.show_ad) {
         setShowNativeAd(true);
         setIsSubmitting(false);
         return;
       }
 
-      // ✅ If complete
       if (data.level_complete) {
         toast.success('🎉 Silver Level Complete!');
         setTimeout(() => {
@@ -145,7 +138,6 @@ export default function SilverParagraphPage() {
         return;
       }
 
-      // ✅ Next paragraph
       if (data.next_paragraph) {
         const nextNumber = (paragraph?.paragraph_number || 0) + 1;
         setTimeout(() => {
@@ -165,10 +157,8 @@ export default function SilverParagraphPage() {
     }
   };
 
-  // ✅ Handle Smartlink complete
   const handleSmartlinkComplete = () => {
     setShowNativeAd(false);
-    // Continue to next paragraph
     const nextNumber = (paragraph?.paragraph_number || 0) + 1;
     if (nextNumber <= totalCount) {
       router.push(`/tasks/silver/${paragraph?.id}?number=${nextNumber}&total=${totalCount}`);
@@ -177,7 +167,6 @@ export default function SilverParagraphPage() {
     }
   };
 
-  // ✅ Check if milestone
   const isMilestone = paragraph ? MILESTONES.includes(paragraph.paragraph_number) : false;
 
   if (loading) {
@@ -201,19 +190,16 @@ export default function SilverParagraphPage() {
     );
   }
 
-  // ✅ Split content to show missing word placeholder
   const contentParts = paragraph.content.split('_____');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP BANNER */}
         <div className="mb-3">
           <TopBanner />
         </div>
 
-        {/* Back Button */}
         <Link
           href="/tasks/silver"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6C63FF] mb-3 transition-colors"
@@ -221,7 +207,6 @@ export default function SilverParagraphPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Level
         </Link>
 
-        {/* Progress */}
         <div className="flex items-center justify-between text-sm mb-2">
           <span className="text-gray-500">
             Paragraph <span className="font-semibold text-gray-700">{paragraph.paragraph_number}</span> of <span className="font-semibold text-gray-700">{totalCount}</span>
@@ -231,7 +216,6 @@ export default function SilverParagraphPage() {
           </span>
         </div>
 
-        {/* Progress Bar */}
         <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-5">
           <div
             className="h-full bg-gradient-to-r from-[#6C63FF] to-purple-500 transition-all duration-300 rounded-full"
@@ -239,17 +223,14 @@ export default function SilverParagraphPage() {
           />
         </div>
 
-        {/* Paragraph Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5">
 
-          {/* Paragraph Number */}
           <div className="text-center mb-4">
             <span className="text-xs font-semibold text-[#6C63FF] bg-[#6C63FF]/10 px-3 py-1 rounded-full">
               📝 Paragraph {paragraph.paragraph_number}/{totalCount}
             </span>
           </div>
 
-          {/* Content */}
           <div className="bg-gray-50 rounded-xl p-4 mb-4">
             <p className="text-gray-700 leading-relaxed">
               {contentParts.map((part, index) => (
@@ -277,7 +258,6 @@ export default function SilverParagraphPage() {
             </p>
           </div>
 
-          {/* Input */}
           {!isSubmitted || !isCorrect ? (
             <div className="space-y-3">
               <label className="text-sm font-medium text-gray-700">
@@ -316,14 +296,12 @@ export default function SilverParagraphPage() {
             </div>
           )}
 
-          {/* Instructions */}
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
             <p className="text-xs text-amber-700">
               💡 Hint: The missing word is a noun that completes the sentence.
             </p>
           </div>
 
-          {/* ✅ Native Banner on Milestone */}
           {showNativeAd && (
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
@@ -341,7 +319,6 @@ export default function SilverParagraphPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM BANNER */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
           <div className="max-w-md mx-auto px-4 pointer-events-auto">
             <BottomBanner />
