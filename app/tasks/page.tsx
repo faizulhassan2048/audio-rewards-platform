@@ -26,6 +26,9 @@ export default function TasksHubPage() {
   const [firstWithdrawalDone, setFirstWithdrawalDone] = useState(false)
   const [countdown, setCountdown] = useState('')
 
+  // ✅ Silver level is always unlocked
+  const isSilverUnlocked = true;
+
   const fetchStatus = useCallback(async (isBackgroundRefresh = false) => {
     try {
       const supabase = createClient()
@@ -95,7 +98,7 @@ export default function TasksHubPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto space-y-4">
 
-        {/* ✅ TOP BANNER - 300x250 */}
+        {/* ✅ TOP BANNER */}
         <TopBanner />
 
         {/* Header */}
@@ -150,60 +153,42 @@ export default function TasksHubPage() {
 
         {/* Silver & Gold Levels */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <SilverLevel unlocked={firstWithdrawalDone} />
+          {/* ✅ Silver Level - Always Unlocked */}
+          <SilverLevel unlocked={true} />
+          
+          {/* ✅ Gold Level - Requires withdrawal */}
           <GoldLevel unlocked={firstWithdrawalDone} />
         </div>
 
-        {/* ✅ BOTTOM BANNER - 320x50 (Fixed at bottom) */}
-        <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
-          <div className="max-w-md mx-auto px-4 pointer-events-auto">
-            <BottomBanner />
-          </div>
-        </div>
+        {/* ✅ BOTTOM BANNER */}
+        <BottomBanner />
 
       </div>
     </div>
   )
 }
 
+// ✅ Silver Level Component - Always Unlocked
 function SilverLevel({ unlocked }: { unlocked: boolean }) {
-  if (unlocked) {
-    return (
-      <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-shadow">
-        <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-3xl mb-2">
-            🥈
-          </div>
-          <h4 className="font-bold text-gray-800 text-sm">Silver Level</h4>
-          <p className="text-[10px] text-green-600 font-semibold mt-0.5">✅ Unlocked</p>
-          <div className="w-full mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-gray-300 to-gray-400 rounded-full" style={{ width: '0%' }} />
-          </div>
-          <p className="text-[10px] text-gray-400 mt-1.5">Coming Soon</p>
-        </div>
-      </div>
-    )
-  }
-
+  // ✅ Always show as unlocked (unlocked = true)
   return (
-    <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border-2 border-dashed border-gray-300 p-4 relative overflow-hidden">
-      <div className="absolute inset-0 backdrop-blur-[1px] bg-white/30" />
-      <div className="relative z-10 flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full bg-white/70 flex items-center justify-center text-3xl mb-2 opacity-40">
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-shadow">
+      <div className="flex flex-col items-center text-center">
+        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-3xl mb-2">
           🥈
         </div>
-        <h4 className="font-bold text-gray-400 text-sm">Silver Level</h4>
-        <div className="w-8 h-8 rounded-full bg-white shadow-md flex items-center justify-center mt-2">
-          <Lock className="w-4 h-4 text-gray-400" />
+        <h4 className="font-bold text-gray-800 text-sm">Silver Level</h4>
+        <p className="text-[10px] text-green-600 font-semibold mt-0.5">✅ Unlocked</p>
+        <div className="w-full mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-gray-300 to-gray-400 rounded-full" style={{ width: '0%' }} />
         </div>
-        <p className="text-[10px] text-gray-400 mt-2 max-w-[120px]">
-          Complete withdrawal to unlock
-        </p>
+        <p className="text-[10px] text-gray-400 mt-1.5">Coming Soon</p>
       </div>
     </div>
   )
 }
 
+// ✅ Gold Level Component - Requires Withdrawal
 function GoldLevel({ unlocked }: { unlocked: boolean }) {
   if (unlocked) {
     return (
