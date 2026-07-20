@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import TopBanner from '@/components/ads/TopBanner';
@@ -24,7 +24,6 @@ export default function SilverParagraphPage() {
 
   const [loading, setLoading] = useState(true);
   const [paragraph, setParagraph] = useState<ParagraphData | null>(null);
-  const [nextParagraph, setNextParagraph] = useState<ParagraphData | null>(null);
   const [userAnswer, setUserAnswer] = useState('');
   const [isCorrect, setIsCorrect] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -33,8 +32,38 @@ export default function SilverParagraphPage() {
   const [completedCount, setCompletedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(15);
   const [isLevelComplete, setIsLevelComplete] = useState(false);
+  const [nextParagraphData, setNextParagraphData] = useState<ParagraphData | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
+  
+  // ✅ Timer states
+  const [adTimerSeconds, setAdTimerSeconds] = useState(5);
+  const [isAdTimerRunning, setIsAdTimerRunning] = useState(false);
 
   const mountRef = useRef(true);
+
+  // ✅ Timer effect - starts when Native Ad shows
+  useEffect(() => {
+    if (showNativeAd) {
+      setAdTimerSeconds(5);
+      setIsAdTimerRunning(true);
+      
+      const timer = setInterval(() => {
+        setAdTimerSeconds((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setIsAdTimerRunning(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+      return () => clearInterval(timer);
+    } else {
+      setAdTimerSeconds(5);
+      setIsAdTimerRunning(false);
+    }
+  }, [showNativeAd]);
 
   useEffect(() => {
     const checkAndFetch = async () => {
@@ -101,7 +130,7 @@ export default function SilverParagraphPage() {
   }, [paragraphId, router]);
 
   const handleSubmit = async () => {
-    if (isSubmitting || !paragraph) return;
+    if (isSubmitting || isNavigating || !paragraph) return;
     setIsSubmitting(true);
     setIsSubmitted(true);
 
@@ -130,15 +159,17 @@ export default function SilverParagraphPage() {
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
 
-      // ✅ Handle "Already completed" gracefully
+      // ✅ Handle "Already completed"
       if (data.alreadyCompleted || data.error === 'Already completed') {
         toast.info('⏩ Already completed! Moving to next...');
         
         if (data.next_paragraph) {
           const nextNumber = (paragraph?.paragraph_number || 0) + 1;
+          setIsNavigating(true);
           setTimeout(() => {
             router.push(`/tasks/silver/${data.next_paragraph.id}?number=${nextNumber}&total=${totalCount}`);
-          }, 1000);
+          }, 500);
+          setIsSubmitting(false);
           return;
         }
         
@@ -160,7 +191,6 @@ export default function SilverParagraphPage() {
         return;
       }
 
-      // ✅ No AD_REQUIRED - always show Native Banner
       if (!res.ok) {
         toast.error(data.error || 'Could not save progress');
         setIsSubmitting(false);
@@ -169,7 +199,7 @@ export default function SilverParagraphPage() {
       }
 
       setCompletedCount(data.completed_paragraphs || paragraph.paragraph_number);
-      setNextParagraph(data.next_paragraph || null);
+      setNextParagraphData(data.next_paragraph || null);
 
       if (data.level_complete) {
         setIsLevelComplete(true);
@@ -178,7 +208,10 @@ export default function SilverParagraphPage() {
         return;
       }
 
-      // ✅ Always show Native Banner after EVERY paragraph
+      if (data.next_paragraph) {
+        setNextParagraphData(data.next_paragraph);
+      }
+
       setShowNativeAd(true);
       setIsSubmitting(false);
 
@@ -192,6 +225,8 @@ export default function SilverParagraphPage() {
   };
 
   const handleNativeAdComplete = () => {
+    if (isAdTimerRunning || isNavigating) return;
+    
     setShowNativeAd(false);
 
     if (isLevelComplete) {
@@ -199,11 +234,29 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    if (nextParagraph) {
+    if (nextParagraphData) {
       const nextNumber = (paragraph?.paragraph_number || 0) + 1;
-      router.push(`/tasks/silver/${nextParagraph.id}?number=${nextNumber}&total=${totalCount}`);
+      setIsNavigating(true);
+      router.push(`/tasks/silver/${nextParagraphData.id}?number=${nextNumber}&total=${totalCount}`);
     } else {
-      router.push('/tasks/silver');
+      const fetchNext = async () => {
+        try {
+          const statusRes = await fetch('/api/tasks/silver/status');
+          const statusText = await statusRes.text();
+          const statusData = statusText ? JSON.parse(statusText) : null;
+          
+          if (statusData?.current_paragraph) {
+            const nextNumber = (paragraph?.paragraph_number || 0) + 1;
+            router.push(`/tasks/silver/${statusData.current_paragraph.id}?number=${nextNumber}&total=${totalCount}`);
+          } else {
+            router.push('/tasks/silver');
+          }
+        } catch (error) {
+          console.error('Error fetching next:', error);
+          router.push('/tasks/silver');
+        }
+      };
+      fetchNext();
     }
   };
 
@@ -312,7 +365,7 @@ export default function SilverParagraphPage() {
                 />
                 <button
                   onClick={handleSubmit}
-                  disabled={isSubmitting || !userAnswer.trim()}
+                  disabled={isSubmitting || !userAnswer.trim() || isNavigating}
                   className="px-6 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmitting ? '✓' : 'Submit'}
@@ -340,7 +393,6 @@ export default function SilverParagraphPage() {
             </p>
           </div>
 
-          {/* ✅ Native Banner - Shows AFTER EVERY paragraph completion */}
           {showNativeAd && (
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
@@ -351,11 +403,33 @@ export default function SilverParagraphPage() {
                 </p>
                 <NativeBanner />
               </div>
+
+              {/* ✅ Timer Display */}
+              <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+                <Clock className="w-4 h-4" />
+                <span>
+                  {isAdTimerRunning 
+                    ? `Please wait ${adTimerSeconds}s...` 
+                    : '✅ Ready to continue!'}
+                </span>
+              </div>
+
               <button
                 onClick={handleNativeAdComplete}
-                className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg transition-all"
+                disabled={isAdTimerRunning || isNavigating}
+                className={`w-full py-4 px-6 rounded-xl font-bold transition-all ${
+                  isAdTimerRunning || isNavigating
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg hover:scale-[1.02]'
+                }`}
               >
-                {isLevelComplete ? '🎉 Claim Reward & Continue' : '✅ Continue to Next Paragraph'}
+                {isAdTimerRunning 
+                  ? `⏳ Wait ${adTimerSeconds}s...` 
+                  : isNavigating 
+                    ? '⏳ Loading...' 
+                    : isLevelComplete 
+                      ? '🎉 Claim Reward & Continue' 
+                      : '✅ Continue to Next Paragraph'}
               </button>
             </div>
           )}
