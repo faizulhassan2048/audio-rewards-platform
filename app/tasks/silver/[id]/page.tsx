@@ -36,9 +36,37 @@ export default function SilverParagraphPage() {
 
   const mountRef = useRef(true);
 
+  // ✅ Check if already completed and redirect
   useEffect(() => {
-    const fetchParagraph = async () => {
+    const checkAndFetch = async () => {
       try {
+        // First check status
+        const statusRes = await fetch('/api/tasks/silver/status');
+        const statusText = await statusRes.text();
+        const statusData = statusText ? JSON.parse(statusText) : null;
+        
+        if (statusData?.current_paragraph?.id !== paragraphId) {
+          const params = new URLSearchParams(window.location.search);
+          const total = parseInt(params.get('total') || '15');
+          
+          if (statusData?.current_paragraph) {
+            const nextNumber = (statusData.completed_paragraphs || 0) + 1;
+            router.replace(
+              `/tasks/silver/${statusData.current_paragraph.id}?number=${nextNumber}&total=${total}`
+            );
+            return;
+          }
+          
+          if (statusData?.level_complete) {
+            router.replace('/tasks/silver?complete=true');
+            return;
+          }
+          
+          router.replace('/tasks/silver');
+          return;
+        }
+
+        // Fetch paragraph
         const params = new URLSearchParams(window.location.search);
         const number = parseInt(params.get('number') || '1');
         const total = parseInt(params.get('total') || '15');
@@ -60,9 +88,6 @@ export default function SilverParagraphPage() {
           total: total
         });
 
-        const statusRes = await fetch('/api/tasks/silver/status');
-        const statusText = await statusRes.text();
-        const statusData = statusText ? JSON.parse(statusText) : null;
         if (statusData) {
           setCompletedCount(statusData.completed_paragraphs || 0);
         }
@@ -75,7 +100,7 @@ export default function SilverParagraphPage() {
       }
     };
 
-    fetchParagraph();
+    checkAndFetch();
   }, [paragraphId, router]);
 
   const handleSubmit = async () => {
@@ -107,6 +132,37 @@ export default function SilverParagraphPage() {
 
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
+
+      // ✅ Handle "Already completed" gracefully
+      if (data.alreadyCompleted || data.error === 'Already completed') {
+        toast.info('⏩ Already completed! Moving to next...');
+        
+        if (data.next_paragraph) {
+          const nextNumber = (paragraph?.paragraph_number || 0) + 1;
+          setTimeout(() => {
+            router.push(`/tasks/silver/${data.next_paragraph.id}?number=${nextNumber}&total=${totalCount}`);
+          }, 1000);
+          return;
+        }
+        
+        if (data.level_complete) {
+          router.push('/tasks/silver?complete=true');
+          return;
+        }
+        
+        // Fallback: get from status
+        const statusRes = await fetch('/api/tasks/silver/status');
+        const statusText = await statusRes.text();
+        const statusData = statusText ? JSON.parse(statusText) : null;
+        
+        if (statusData?.current_paragraph) {
+          const nextNumber = (paragraph?.paragraph_number || 0) + 1;
+          router.push(`/tasks/silver/${statusData.current_paragraph.id}?number=${nextNumber}&total=${totalCount}`);
+        } else {
+          router.push('/tasks/silver');
+        }
+        return;
+      }
 
       if (!res.ok) {
         toast.error(data.error || 'Could not save progress');
@@ -145,12 +201,11 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // ✅ Use the next paragraph from API response
     if (nextParagraph) {
       const nextNumber = (paragraph?.paragraph_number || 0) + 1;
       router.push(`/tasks/silver/${nextParagraph.id}?number=${nextNumber}&total=${totalCount}`);
     } else {
-      router.push('/tasks/silver?complete=true');
+      router.push('/tasks/silver');
     }
   };
 
@@ -181,7 +236,6 @@ export default function SilverParagraphPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP BANNER */}
         <div className="mb-3">
           <TopBanner />
         </div>
@@ -282,14 +336,12 @@ export default function SilverParagraphPage() {
             </div>
           )}
 
-          {/* ✅ HINT - Missing Word Clearly Visible */}
           <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl">
             <p className="text-sm font-medium text-green-800">
               💡 <span className="font-bold">Hint:</span> The missing word is: <span className="font-bold text-green-700 underline">{paragraph.missing_word}</span>
             </p>
           </div>
 
-          {/* ✅ Native Banner - Shows AFTER EVERY paragraph completion */}
           {showNativeAd && (
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
@@ -310,7 +362,6 @@ export default function SilverParagraphPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM BANNER */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
           <div className="max-w-md mx-auto px-4 pointer-events-auto">
             <BottomBanner />
