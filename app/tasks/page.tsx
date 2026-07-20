@@ -26,9 +26,6 @@ export default function TasksHubPage() {
   const [firstWithdrawalDone, setFirstWithdrawalDone] = useState(false)
   const [countdown, setCountdown] = useState('')
 
-  // ✅ Silver level is always unlocked
-  const isSilverUnlocked = true;
-
   const fetchStatus = useCallback(async (isBackgroundRefresh = false) => {
     try {
       const supabase = createClient()
@@ -151,10 +148,13 @@ export default function TasksHubPage() {
           )}
         </div>
 
-        {/* Silver & Gold Levels */}
+        {/* ✅ Silver & Gold Levels */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* ✅ Silver Level - Always Unlocked */}
-          <SilverLevel unlocked={true} />
+          {/* ✅ Silver Level - Always Unlocked with CLICK */}
+          <SilverLevel 
+            unlocked={true} 
+            onClick={() => router.push('/tasks/silver')}
+          />
           
           {/* ✅ Gold Level - Requires withdrawal */}
           <GoldLevel unlocked={firstWithdrawalDone} />
@@ -168,13 +168,15 @@ export default function TasksHubPage() {
   )
 }
 
-// ✅ Silver Level Component - Always Unlocked
-function SilverLevel({ unlocked }: { unlocked: boolean }) {
-  // ✅ Always show as unlocked (unlocked = true)
+// ✅ Silver Level Component - Always Unlocked with onClick
+function SilverLevel({ unlocked, onClick }: { unlocked: boolean; onClick: () => void }) {
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-shadow">
+    <button
+      onClick={onClick}
+      className="w-full bg-white rounded-2xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-all group text-left"
+    >
       <div className="flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-3xl mb-2">
+        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-3xl mb-2 group-hover:scale-105 transition-transform">
           🥈
         </div>
         <h4 className="font-bold text-gray-800 text-sm">Silver Level</h4>
@@ -183,8 +185,9 @@ function SilverLevel({ unlocked }: { unlocked: boolean }) {
           <div className="h-full bg-gradient-to-r from-gray-300 to-gray-400 rounded-full" style={{ width: '0%' }} />
         </div>
         <p className="text-[10px] text-gray-400 mt-1.5">Coming Soon</p>
+        <ChevronRight className="w-4 h-4 text-gray-400 mt-2 group-hover:translate-x-1 transition-transform" />
       </div>
-    </div>
+    </button>
   )
 }
 
