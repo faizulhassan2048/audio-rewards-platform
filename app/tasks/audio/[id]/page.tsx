@@ -33,24 +33,17 @@ interface MilestoneGateState {
   levelComplete: boolean;
 }
 
-// ✅ Safe JSON fetch helper
 const safeFetch = async (url: string, options?: RequestInit) => {
   try {
     const res = await fetch(url, options);
     const text = await res.text();
-    if (!text) {
-      console.warn('⚠️ Empty response from:', url);
-      return null;
-    }
+    if (!text) return null;
     try {
       return JSON.parse(text);
-    } catch (parseError) {
-      console.error('❌ JSON parse error for:', url, parseError);
-      console.log('Response text:', text.substring(0, 200));
+    } catch {
       return null;
     }
-  } catch (error) {
-    console.error('❌ Fetch error for:', url, error);
+  } catch {
     return null;
   }
 };
@@ -74,11 +67,42 @@ export default function AudioPlayerPage() {
   const [volumeWarning, setVolumeWarning] = useState(false);
   const [pausedBySystem, setPausedBySystem] = useState(false);
   const [milestoneGate, setMilestoneGate] = useState<MilestoneGateState | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [nextAudioId, setNextAudioId] = useState<string | null>(null);
+  const [nextAudioIndex, setNextAudioIndex] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
+
+  // ✅ Fetch next audio from status
+  const fetchNextAudio = async () => {
+    try {
+      const statusData = await safeFetch('/api/tasks/level/status');
+      if (statusData?.current_audio) {
+        const nextIndex = (statusData.completed_audios || 0) + 1;
+        setNextAudioId(statusData.current_audio.id);
+        setNextAudioIndex(nextIndex);
+        return statusData.current_audio;
+      }
+      if (statusData?.level_complete) {
+        router.push('/tasks/bronze?complete=true');
+        return null;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching next audio:', error);
+      return null;
+    }
+  };
+
+  // ✅ Navigate to next audio
+  const navigateToNextAudio = (nextId: string, nextIndex: number) => {
+    if (isNavigating) return;
+    setIsNavigating(true);
+    router.push(`/tasks/audio/${nextId}?index=${nextIndex}&total=${audio?.total || 15}`);
+  };
 
   // ✅ Tab visibility detection
   useEffect(() => {
@@ -153,38 +177,61 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // ✅ Fetch audio — FIRST confirm server state
+  // ✅ Fetch audio with auto-redirect
   useEffect(() => {
     const fetchAudio = async () => {
       try {
+        // ✅ First check status
         const statusData = await safeFetch('/api/tasks/level/status');
 
-        if (statusData?.ad_required) {
+        if (!statusData) {
           router.replace('/tasks/bronze');
           return;
         }
 
+        // ✅ If level complete
         if (statusData?.level_complete) {
           router.replace('/tasks/bronze?complete=true');
           return;
         }
 
-        if (!statusData?.current_audio || statusData.current_audio.id !== audioId) {
-          if (statusData?.current_audio?.id) {
+        // ✅ If ad required
+        if (statusData?.ad_required) {
+          router.replace('/tasks/bronze');
+          return;
+        }
+
+        // ✅ If wrong audio, redirect
+        if (statusData?.current_audio?.id !== audioId) {
+          if (statusData?.current_audio) {
             const correctIndex = (statusData.completed_audios || 0) + 1;
-            const correctTotal = statusData.total_audios || 15;
             router.replace(
-              `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${correctTotal}`
+              `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`
             );
-          } else {
-            router.replace('/tasks/bronze');
+            return;
           }
+          router.replace('/tasks/bronze');
           return;
         }
 
         const index = statusData.completed_audios + 1;
         const total = statusData.total_audios || 15;
 
+        // ✅ Check if already completed
+        const completedIds = statusData.completed_audio_ids || [];
+        if (completedIds.includes(audioId)) {
+          toast.info('⏩ Already completed! Moving to next...');
+          const nextAudio = await fetchNextAudio();
+          if (nextAudio) {
+            const nextIndex = (statusData.completed_audios || 0) + 1;
+            setTimeout(() => {
+              navigateToNextAudio(nextAudio.id, nextIndex);
+            }, 500);
+            return;
+          }
+        }
+
+        // ✅ Fetch audio data
         const [sessionRes, audioRes] = await Promise.all([
           fetch('/api/audio/session', {
             method: 'POST',
@@ -302,6 +349,22 @@ export default function AudioPlayerPage() {
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
 
+      // ✅ Handle "Already completed" - auto-navigate
+      if (data.alreadyCompleted || data.error === 'Already completed') {
+        toast.info('⏩ Already completed! Moving to next...');
+        const nextAudio = await fetchNextAudio();
+        if (nextAudio) {
+          const nextIndex = (audio?.index || 0) + 1;
+          setTimeout(() => {
+            navigateToNextAudio(nextAudio.id, nextIndex);
+          }, 500);
+        } else {
+          router.push('/tasks/bronze');
+        }
+        setIsSubmitting(false);
+        return;
+      }
+
       if (!res.ok) {
         if (data.error === 'AD_REQUIRED') {
           toast.info('📢 Complete ad to continue');
@@ -313,7 +376,7 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // ✅ Milestone hit — show inline ad-gate
+      // ✅ Milestone hit
       if (data.show_ad) {
         setMilestoneGate({
           milestone: data.milestone,
@@ -332,6 +395,13 @@ export default function AudioPlayerPage() {
         return;
       }
 
+      // ✅ Save next audio info
+      if (data.next_audio) {
+        setNextAudioId(data.next_audio.id);
+        setNextAudioIndex((audio?.index || 0) + 1);
+      }
+
+      // ✅ Normal audio: go to next
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
@@ -351,7 +421,6 @@ export default function AudioPlayerPage() {
     }
   };
 
-  // ✅ Called only after server verifies ad was watched
   const handleMilestoneUnlocked = () => {
     if (!milestoneGate) return;
     if (milestoneGate.levelComplete) {
@@ -418,10 +487,7 @@ export default function AudioPlayerPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Audio not found</p>
-          <Link href="/tasks/bronze" className="text-[#6C63FF] hover:underline">
-            Back to Level
-          </Link>
+          <p className="text-gray-500 mb-4">Loading next audio...</p>
         </div>
       </div>
     );
@@ -431,12 +497,10 @@ export default function AudioPlayerPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
-        {/* ✅ TOP BANNER */}
         <div className="mb-3">
           <TopBanner />
         </div>
 
-        {/* Back Button */}
         <Link
           href="/tasks/bronze"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6C63FF] mb-3 transition-colors"
@@ -444,7 +508,6 @@ export default function AudioPlayerPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Level
         </Link>
 
-        {/* ✅ Tab/Volume Warning */}
         {(tabWarning || volumeWarning) && (
           <div className={`mb-3 px-4 py-2 rounded-lg text-sm font-medium ${
             tabWarning ? 'bg-red-50 border border-red-200 text-red-700' : ''
@@ -555,7 +618,6 @@ export default function AudioPlayerPage() {
             </div>
           </div>
 
-          {/* ✅ Milestone ad-gate — inline */}
           {milestoneGate && (
             <div className="mt-4">
               <MilestoneAdGate
@@ -590,7 +652,6 @@ export default function AudioPlayerPage() {
           )}
         </div>
 
-        {/* ✅ BOTTOM BANNER */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
           <div className="max-w-md mx-auto px-4 pointer-events-auto">
             <BottomBanner />
