@@ -8,10 +8,6 @@ import { toast } from 'sonner';
 import TopBanner from '@/components/ads/TopBanner';
 import BottomBanner from '@/components/ads/BottomBanner';
 import NativeBanner from '@/components/ads/NativeBanner';
-import SmartlinkButton from '@/components/ads/SmartlinkButton';
-
-const MILESTONES = [5, 10, 15];
-const SMARTLINK_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
 
 interface ParagraphData {
   id: string;
@@ -35,6 +31,7 @@ export default function SilverParagraphPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedCount, setCompletedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(15);
+  const [isLevelComplete, setIsLevelComplete] = useState(false);
 
   const mountRef = useRef(true);
 
@@ -111,11 +108,6 @@ export default function SilverParagraphPage() {
       const data = text ? JSON.parse(text) : {};
 
       if (!res.ok) {
-        if (data.error === 'AD_REQUIRED') {
-          setShowNativeAd(true);
-          setIsSubmitting(false);
-          return;
-        }
         toast.error(data.error || 'Could not save progress');
         setIsSubmitting(false);
         setIsSubmitted(false);
@@ -124,30 +116,16 @@ export default function SilverParagraphPage() {
 
       setCompletedCount(data.completed_paragraphs || paragraph.paragraph_number);
 
-      if (data.show_ad) {
+      if (data.level_complete) {
+        setIsLevelComplete(true);
         setShowNativeAd(true);
         setIsSubmitting(false);
         return;
       }
 
-      if (data.level_complete) {
-        toast.success('🎉 Silver Level Complete!');
-        setTimeout(() => {
-          router.push('/tasks/silver?complete=true');
-        }, 1500);
-        return;
-      }
+      setShowNativeAd(true);
+      setIsSubmitting(false);
 
-      if (data.next_paragraph) {
-        const nextNumber = (paragraph?.paragraph_number || 0) + 1;
-        setTimeout(() => {
-          router.push(
-            `/tasks/silver/${data.next_paragraph.id}?number=${nextNumber}&total=${totalCount}`
-          );
-        }, 1500);
-      } else {
-        router.push('/tasks/silver');
-      }
     } catch (error) {
       console.error('Error submitting:', error);
       toast.error('Network error');
@@ -157,8 +135,14 @@ export default function SilverParagraphPage() {
     }
   };
 
-  const handleSmartlinkComplete = () => {
+  const handleNativeAdComplete = () => {
     setShowNativeAd(false);
+
+    if (isLevelComplete) {
+      router.push('/tasks/silver?complete=true');
+      return;
+    }
+
     const nextNumber = (paragraph?.paragraph_number || 0) + 1;
     if (nextNumber <= totalCount) {
       router.push(`/tasks/silver/${paragraph?.id}?number=${nextNumber}&total=${totalCount}`);
@@ -166,8 +150,6 @@ export default function SilverParagraphPage() {
       router.push('/tasks/silver?complete=true');
     }
   };
-
-  const isMilestone = paragraph ? MILESTONES.includes(paragraph.paragraph_number) : false;
 
   if (loading) {
     return (
@@ -291,7 +273,7 @@ export default function SilverParagraphPage() {
             <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
               <p className="text-sm font-semibold text-green-700 flex items-center justify-center gap-2">
                 <CheckCircle className="w-5 h-5" />
-                ✅ Correct! Moving on...
+                ✅ Correct!
               </p>
             </div>
           )}
@@ -306,15 +288,18 @@ export default function SilverParagraphPage() {
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
                 <p className="text-sm font-semibold text-purple-600 text-center mb-2">
-                  ⭐ Milestone {paragraph.paragraph_number}/{totalCount} — Complete ad to continue
+                  {isLevelComplete 
+                    ? '🎉 Level Complete! Claim your reward!' 
+                    : `📢 Paragraph ${paragraph.paragraph_number}/${totalCount} Complete!`}
                 </p>
                 <NativeBanner />
               </div>
-              <SmartlinkButton
-                smartlinkUrl={SMARTLINK_URL}
-                onComplete={handleSmartlinkComplete}
-                buttonText="Continue to Next Paragraph"
-              />
+              <button
+                onClick={handleNativeAdComplete}
+                className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg transition-all"
+              >
+                {isLevelComplete ? '🎉 Claim Reward & Continue' : '✅ Continue to Next Paragraph'}
+              </button>
             </div>
           )}
         </div>
