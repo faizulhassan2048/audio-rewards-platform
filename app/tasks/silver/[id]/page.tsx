@@ -24,6 +24,7 @@ export default function SilverParagraphPage() {
 
   const [loading, setLoading] = useState(true);
   const [paragraph, setParagraph] = useState<ParagraphData | null>(null);
+  const [nextParagraph, setNextParagraph] = useState<ParagraphData | null>(null);
   const [userAnswer, setUserAnswer] = useState('');
   const [isCorrect, setIsCorrect] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -115,6 +116,7 @@ export default function SilverParagraphPage() {
       }
 
       setCompletedCount(data.completed_paragraphs || paragraph.paragraph_number);
+      setNextParagraph(data.next_paragraph || null);
 
       if (data.level_complete) {
         setIsLevelComplete(true);
@@ -143,9 +145,10 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    const nextNumber = (paragraph?.paragraph_number || 0) + 1;
-    if (nextNumber <= totalCount) {
-      router.push(`/tasks/silver/${paragraph?.id}?number=${nextNumber}&total=${totalCount}`);
+    // ✅ Use the next paragraph from API response
+    if (nextParagraph) {
+      const nextNumber = (paragraph?.paragraph_number || 0) + 1;
+      router.push(`/tasks/silver/${nextParagraph.id}?number=${nextNumber}&total=${totalCount}`);
     } else {
       router.push('/tasks/silver?complete=true');
     }
