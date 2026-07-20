@@ -36,11 +36,9 @@ export default function SilverParagraphPage() {
 
   const mountRef = useRef(true);
 
-  // ✅ Check if already completed and redirect
   useEffect(() => {
     const checkAndFetch = async () => {
       try {
-        // First check status
         const statusRes = await fetch('/api/tasks/silver/status');
         const statusText = await statusRes.text();
         const statusData = statusText ? JSON.parse(statusText) : null;
@@ -66,7 +64,6 @@ export default function SilverParagraphPage() {
           return;
         }
 
-        // Fetch paragraph
         const params = new URLSearchParams(window.location.search);
         const number = parseInt(params.get('number') || '1');
         const total = parseInt(params.get('total') || '15');
@@ -150,7 +147,6 @@ export default function SilverParagraphPage() {
           return;
         }
         
-        // Fallback: get from status
         const statusRes = await fetch('/api/tasks/silver/status');
         const statusText = await statusRes.text();
         const statusData = statusText ? JSON.parse(statusText) : null;
@@ -164,6 +160,7 @@ export default function SilverParagraphPage() {
         return;
       }
 
+      // ✅ No AD_REQUIRED - always show Native Banner
       if (!res.ok) {
         toast.error(data.error || 'Could not save progress');
         setIsSubmitting(false);
@@ -181,6 +178,7 @@ export default function SilverParagraphPage() {
         return;
       }
 
+      // ✅ Always show Native Banner after EVERY paragraph
       setShowNativeAd(true);
       setIsSubmitting(false);
 
@@ -342,6 +340,7 @@ export default function SilverParagraphPage() {
             </p>
           </div>
 
+          {/* ✅ Native Banner - Shows AFTER EVERY paragraph completion */}
           {showNativeAd && (
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">

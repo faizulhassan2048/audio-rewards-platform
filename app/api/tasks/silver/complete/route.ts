@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server';
 
 const LEVEL_NAME = 'silver';
 const TOTAL_PARAGRAPHS = 15;
-const MILESTONES = [5, 10, 15];
 
 export async function POST(req: Request) {
   try {
@@ -18,7 +17,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'paragraph_id required' }, { status: 400 });
     }
 
-    // Get level
     const { data: level, error } = await supabase
       .from('user_levels')
       .select('*')
@@ -30,18 +28,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Level not found' }, { status: 404 });
     }
 
-    // Check if already completed
     const completedIds = level.silver_completed_paragraph_ids || [];
     if (completedIds.includes(paragraph_id)) {
-      return NextResponse.json({ error: 'Already completed' }, { status: 409 });
-    }
+      // ✅ Already completed - return next paragraph
+      const { data: paragraphs } = await supabase
+        .from('silver_paragraphs')
+        .select('id, paragraph_number, content, missing_word')
+        .order('paragraph_number', { ascending: true });
 
-    // Check if ad pending
-    if (level.silver_pending_ad_milestone) {
-      return NextResponse.json(
-        { error: 'AD_REQUIRED', milestone: level.silver_pending_ad_milestone },
-        { status: 409 }
-      );
+      let nextParagraph = null;
+      if (paragraphs) {
+        for (const p of paragraphs) {
+          if (!completedIds.includes(p.id)) {
+            nextParagraph = p;
+            break;
+          }
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        alreadyCompleted: true,
+        completed_paragraphs: level.silver_completed_paragraphs || 0,
+        total_paragraphs: TOTAL_PARAGRAPHS,
+        level_complete: (level.silver_completed_paragraphs || 0) >= TOTAL_PARAGRAPHS,
+        show_ad: true,
+        next_paragraph: nextParagraph,
+      });
     }
 
     const newCompletedCount = (level.silver_completed_paragraphs || 0) + 1;
@@ -52,12 +65,6 @@ export async function POST(req: Request) {
       silver_completed_paragraphs: newCompletedCount,
       silver_completed_paragraph_ids: newCompletedIds,
     };
-
-    // Check milestone
-    const isMilestone = MILESTONES.includes(paragraph_number);
-    if (isMilestone && !isLevelComplete) {
-      updatePayload.silver_pending_ad_milestone = paragraph_number;
-    }
 
     if (isLevelComplete) {
       updatePayload.silver_completed_at = new Date().toISOString();
@@ -72,9 +79,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
-    // Get next paragraph
+    // ✅ Get next paragraph
     let nextParagraph = null;
-    if (!isLevelComplete && !isMilestone) {
+    if (!isLevelComplete) {
       const { data: paragraphs } = await supabase
         .from('silver_paragraphs')
         .select('id, paragraph_number, content, missing_word')
@@ -94,8 +101,7 @@ export async function POST(req: Request) {
       success: true,
       completed_paragraphs: newCompletedCount,
       total_paragraphs: TOTAL_PARAGRAPHS,
-      show_ad: isMilestone && !isLevelComplete,
-      milestone: isMilestone && !isLevelComplete ? paragraph_number : null,
+      show_ad: true, // ✅ Always show Native Banner after EVERY paragraph
       level_complete: isLevelComplete,
       next_paragraph: nextParagraph,
     });
