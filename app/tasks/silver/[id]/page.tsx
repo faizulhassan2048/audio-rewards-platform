@@ -178,6 +178,7 @@ export default function SilverParagraphPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
 
+        {/* ✅ TOP BANNER */}
         <div className="mb-3">
           <TopBanner />
         </div>
@@ -278,12 +279,14 @@ export default function SilverParagraphPage() {
             </div>
           )}
 
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-            <p className="text-xs text-amber-700">
-              💡 Hint: The missing word is a noun that completes the sentence.
+          {/* ✅ HINT - Missing Word Clearly Visible */}
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl">
+            <p className="text-sm font-medium text-green-800">
+              💡 <span className="font-bold">Hint:</span> The missing word is: <span className="font-bold text-green-700 underline">{paragraph.missing_word}</span>
             </p>
           </div>
 
+          {/* ✅ Native Banner - Shows AFTER EVERY paragraph completion */}
           {showNativeAd && (
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
@@ -304,6 +307,7 @@ export default function SilverParagraphPage() {
           )}
         </div>
 
+        {/* ✅ BOTTOM BANNER */}
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
           <div className="max-w-md mx-auto px-4 pointer-events-auto">
             <BottomBanner />
