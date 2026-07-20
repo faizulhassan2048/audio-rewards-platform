@@ -17,6 +17,28 @@ interface ParagraphData {
   total: number;
 }
 
+// ✅ Safe fetch helper
+const safeFetch = async (url: string, options?: RequestInit) => {
+  try {
+    const res = await fetch(url, options);
+    const text = await res.text();
+    if (!text) {
+      console.warn('⚠️ Empty response from:', url);
+      return null;
+    }
+    try {
+      return JSON.parse(text);
+    } catch (parseError) {
+      console.error('❌ JSON parse error for:', url, parseError);
+      console.log('Response text:', text.substring(0, 200));
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Fetch error for:', url, error);
+    return null;
+  }
+};
+
 export default function SilverParagraphPage() {
   const router = useRouter();
   const params = useParams();
@@ -35,29 +57,20 @@ export default function SilverParagraphPage() {
   const [isNavigating, setIsNavigating] = useState(false);
   const [adTimerSeconds, setAdTimerSeconds] = useState(5);
   const [isAdTimerRunning, setIsAdTimerRunning] = useState(false);
-  
-  // ✅ Store next paragraph for navigation
-  const [nextParagraphInfo, setNextParagraphInfo] = useState<{ id: string; number: number } | null>(null);
-
-  const mountRef = useRef(true);
+  const [nextParagraphId, setNextParagraphId] = useState<string | null>(null);
+  const [nextParagraphNumber, setNextParagraphNumber] = useState<number | null>(null);
 
   // Timer effect
   useEffect(() => {
     if (showNativeAd) {
       setAdTimerSeconds(5);
       setIsAdTimerRunning(true);
-      
       const timer = setInterval(() => {
         setAdTimerSeconds((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            setIsAdTimerRunning(false);
-            return 0;
-          }
+          if (prev <= 1) { clearInterval(timer); setIsAdTimerRunning(false); return 0; }
           return prev - 1;
         });
       }, 1000);
-      
       return () => clearInterval(timer);
     } else {
       setAdTimerSeconds(5);
@@ -65,102 +78,69 @@ export default function SilverParagraphPage() {
     }
   }, [showNativeAd]);
 
-  // ✅ Fetch next paragraph directly
-  const getNextParagraph = async (currentCompletedCount?: number) => {
+  // ✅ Fetch next paragraph from status with safe parsing
+  const getNextFromStatus = async () => {
     try {
-      const statusRes = await fetch('/api/tasks/silver/status');
-      const statusText = await statusRes.text();
-      const statusData = statusText ? JSON.parse(statusText) : null;
-      
-      if (statusData?.current_paragraph) {
-        const nextNumber = (statusData.completed_paragraphs || 0) + 1;
-        return {
-          id: statusData.current_paragraph.id,
-          number: nextNumber,
-        };
+      const data = await safeFetch('/api/tasks/silver/status');
+      if (data?.current_paragraph) {
+        const num = (data.completed_paragraphs || 0) + 1;
+        return { id: data.current_paragraph.id, number: num };
       }
-      
-      if (statusData?.level_complete) {
-        router.push('/tasks/silver?complete=true');
-        return null;
+      if (data?.level_complete) { 
+        router.push('/tasks/silver?complete=true'); 
+        return null; 
       }
-      
       return null;
-    } catch (error) {
-      console.error('Error fetching next:', error);
-      return null;
+    } catch { 
+      return null; 
     }
   };
 
+  // ✅ Page load with safe parsing
   useEffect(() => {
-    const checkAndFetch = async () => {
+    const fetchData = async () => {
       try {
-        const statusRes = await fetch('/api/tasks/silver/status');
-        const statusText = await statusRes.text();
-        const statusData = statusText ? JSON.parse(statusText) : null;
-        
-        if (!statusData) {
-          router.push('/tasks/silver');
-          return;
-        }
+        const statusData = await safeFetch('/api/tasks/silver/status');
 
-        if (statusData?.level_complete) {
-          router.replace('/tasks/silver?complete=true');
-          return;
-        }
-
-        // ✅ If wrong paragraph, redirect
+        // If wrong paragraph, redirect
         if (statusData?.current_paragraph?.id !== paragraphId) {
+          const total = new URLSearchParams(window.location.search).get('total') || '15';
           if (statusData?.current_paragraph) {
-            const nextNumber = (statusData.completed_paragraphs || 0) + 1;
-            router.replace(
-              `/tasks/silver/${statusData.current_paragraph.id}?number=${nextNumber}&total=${totalCount}`
-            );
+            const num = (statusData.completed_paragraphs || 0) + 1;
+            router.replace(`/tasks/silver/${statusData.current_paragraph.id}?number=${num}&total=${total}`);
             return;
           }
           router.replace('/tasks/silver');
           return;
         }
 
+        // If already completed, auto-next
+        if (statusData?.completed_paragraph_ids?.includes(paragraphId)) {
+          toast.info('⏩ Already completed! Moving to next...');
+          const next = await getNextFromStatus();
+          if (next) { router.replace(`/tasks/silver/${next.id}?number=${next.number}&total=${totalCount}`); return; }
+          router.push('/tasks/silver');
+          return;
+        }
+
+        // Fetch paragraph
         const params = new URLSearchParams(window.location.search);
         const number = parseInt(params.get('number') || '1');
         const total = parseInt(params.get('total') || '15');
         setTotalCount(total);
 
-        const res = await fetch(`/api/tasks/silver/paragraph/${paragraphId}`);
-        const text = await res.text();
-        const data = text ? JSON.parse(text) : null;
+        const data = await safeFetch(`/api/tasks/silver/paragraph/${paragraphId}`);
 
-        if (!res.ok || !data) {
-          // ✅ Try to get next paragraph
-          const next = await getNextParagraph();
-          if (next) {
-            router.replace(`/tasks/silver/${next.id}?number=${next.number}&total=${total}`);
-          } else {
-            router.push('/tasks/silver');
-          }
+        if (!data) {
+          toast.error('Paragraph not found');
+          const next = await getNextFromStatus();
+          if (next) { router.push(`/tasks/silver/${next.id}?number=${next.number}&total=${totalCount}`); return; }
+          router.push('/tasks/silver');
           return;
         }
 
-        setParagraph({
-          ...data,
-          paragraph_number: number,
-          total: total
-        });
-
-        setCompletedCount(statusData?.completed_paragraphs || 0);
-        
-        // ✅ If already completed, auto-navigate
-        const completedIds = statusData?.completed_paragraph_ids || [];
-        if (completedIds.includes(paragraphId)) {
-          toast.info('⏩ Already completed! Moving to next...');
-          const next = await getNextParagraph();
-          if (next) {
-            setTimeout(() => {
-              router.replace(`/tasks/silver/${next.id}?number=${next.number}&total=${total}`);
-            }, 500);
-          }
-        }
+        setParagraph({ ...data, paragraph_number: number, total });
+        if (statusData) setCompletedCount(statusData.completed_paragraphs || 0);
       } catch (error) {
         console.error('Error:', error);
         toast.error('Could not load paragraph');
@@ -169,9 +149,8 @@ export default function SilverParagraphPage() {
         setLoading(false);
       }
     };
-
-    checkAndFetch();
-  }, [paragraphId, router, totalCount]);
+    fetchData();
+  }, [paragraphId, router]);
 
   const handleSubmit = async () => {
     if (isSubmitting || isNavigating || !paragraph) return;
@@ -191,7 +170,7 @@ export default function SilverParagraphPage() {
     toast.success('✅ Correct!');
 
     try {
-      const res = await fetch('/api/tasks/silver/complete', {
+      const data = await safeFetch('/api/tasks/silver/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -200,33 +179,23 @@ export default function SilverParagraphPage() {
         }),
       });
 
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
-
-      // ✅ Handle "Already completed" - auto-navigate
-      if (data.alreadyCompleted || data.error === 'Already completed') {
-        toast.info('⏩ Already completed! Moving to next...');
-        const next = await getNextParagraph();
-        if (next) {
-          setIsNavigating(true);
-          setTimeout(() => {
-            router.push(`/tasks/silver/${next.id}?number=${next.number}&total=${totalCount}`);
-          }, 500);
-        } else {
-          router.push('/tasks/silver');
-        }
+      // Handle Already completed or AD_REQUIRED
+      if (!data || data.alreadyCompleted || data.error === 'Already completed' || data.error === 'AD_REQUIRED') {
+        toast.info('⏩ Moving to next...');
         setIsSubmitting(false);
-        return;
-      }
-
-      if (!res.ok) {
-        toast.error(data.error || 'Could not save progress');
-        setIsSubmitting(false);
-        setIsSubmitted(false);
+        setTimeout(async () => {
+          const next = await getNextFromStatus();
+          if (next) { router.push(`/tasks/silver/${next.id}?number=${next.number}&total=${totalCount}`); } 
+          else { router.push('/tasks/silver'); }
+        }, 500);
         return;
       }
 
       setCompletedCount(data.completed_paragraphs || paragraph.paragraph_number);
+      if (data.next_paragraph) {
+        setNextParagraphId(data.next_paragraph.id);
+        setNextParagraphNumber((paragraph?.paragraph_number || 0) + 1);
+      }
 
       if (data.level_complete) {
         setIsLevelComplete(true);
@@ -235,20 +204,10 @@ export default function SilverParagraphPage() {
         return;
       }
 
-      // ✅ Save next paragraph info from API response
-      if (data.next_paragraph) {
-        const nextNumber = (paragraph?.paragraph_number || 0) + 1;
-        setNextParagraphInfo({
-          id: data.next_paragraph.id,
-          number: nextNumber,
-        });
-      }
-
       setShowNativeAd(true);
       setIsSubmitting(false);
-
     } catch (error) {
-      console.error('Error submitting:', error);
+      console.error('Error:', error);
       toast.error('Network error');
       setIsSubmitted(false);
     } finally {
@@ -257,31 +216,31 @@ export default function SilverParagraphPage() {
   };
 
   const handleNativeAdComplete = async () => {
-    // ✅ Prevent if timer running or already navigating
     if (isAdTimerRunning || isNavigating) return;
-    
     setShowNativeAd(false);
+    setIsNavigating(true);
 
     if (isLevelComplete) {
       router.push('/tasks/silver?complete=true');
+      setIsNavigating(false);
       return;
     }
 
-    // ✅ First priority: Use nextParagraphInfo from API
-    if (nextParagraphInfo) {
-      setIsNavigating(true);
-      router.push(`/tasks/silver/${nextParagraphInfo.id}?number=${nextParagraphInfo.number}&total=${totalCount}`);
+    // Try: stored next → status API → fallback
+    if (nextParagraphId && nextParagraphNumber) {
+      router.push(`/tasks/silver/${nextParagraphId}?number=${nextParagraphNumber}&total=${totalCount}`);
+      setIsNavigating(false);
       return;
     }
 
-    // ✅ Second priority: Fetch from status API
-    const next = await getNextParagraph();
+    const next = await getNextFromStatus();
     if (next) {
-      setIsNavigating(true);
       router.push(`/tasks/silver/${next.id}?number=${next.number}&total=${totalCount}`);
     } else {
+      toast.error('Could not find next paragraph');
       router.push('/tasks/silver');
     }
+    setIsNavigating(false);
   };
 
   if (loading) {
@@ -307,15 +266,9 @@ export default function SilverParagraphPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white px-4 py-6 pb-32">
       <div className="max-w-md mx-auto">
+        <div className="mb-3"><TopBanner /></div>
 
-        <div className="mb-3">
-          <TopBanner />
-        </div>
-
-        <Link
-          href="/tasks/silver"
-          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6C63FF] mb-3 transition-colors"
-        >
+        <Link href="/tasks/silver" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6C63FF] mb-3 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to Level
         </Link>
 
@@ -323,20 +276,14 @@ export default function SilverParagraphPage() {
           <span className="text-gray-500">
             Paragraph <span className="font-semibold text-gray-700">{paragraph.paragraph_number}</span> of <span className="font-semibold text-gray-700">{totalCount}</span>
           </span>
-          <span className="font-medium text-[#6C63FF]">
-            {Math.round((completedCount / totalCount) * 100)}%
-          </span>
+          <span className="font-medium text-[#6C63FF]">{Math.round((completedCount / totalCount) * 100)}%</span>
         </div>
 
         <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-5">
-          <div
-            className="h-full bg-gradient-to-r from-[#6C63FF] to-purple-500 transition-all duration-300 rounded-full"
-            style={{ width: `${(completedCount / totalCount) * 100}%` }}
-          />
+          <div className="h-full bg-gradient-to-r from-[#6C63FF] to-purple-500 transition-all duration-300 rounded-full" style={{ width: `${(completedCount / totalCount) * 100}%` }} />
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5">
-
           <div className="text-center mb-4">
             <span className="text-xs font-semibold text-[#6C63FF] bg-[#6C63FF]/10 px-3 py-1 rounded-full">
               📝 Paragraph {paragraph.paragraph_number}/{totalCount}
@@ -351,17 +298,11 @@ export default function SilverParagraphPage() {
                   {index < contentParts.length - 1 && (
                     <span className="inline-block">
                       {isSubmitted && isCorrect ? (
-                        <span className="text-green-600 font-bold bg-green-100 px-2 py-0.5 rounded">
-                          {paragraph.missing_word}
-                        </span>
+                        <span className="text-green-600 font-bold bg-green-100 px-2 py-0.5 rounded">{paragraph.missing_word}</span>
                       ) : isSubmitted && !isCorrect ? (
-                        <span className="text-red-600 font-bold bg-red-100 px-2 py-0.5 rounded line-through">
-                          {userAnswer || '____'}
-                        </span>
+                        <span className="text-red-600 font-bold bg-red-100 px-2 py-0.5 rounded line-through">{userAnswer || '____'}</span>
                       ) : (
-                        <span className="text-purple-600 font-bold bg-purple-100 px-2 py-0.5 rounded">
-                          _____
-                        </span>
+                        <span className="text-purple-600 font-bold bg-purple-100 px-2 py-0.5 rounded">_____</span>
                       )}
                     </span>
                   )}
@@ -372,9 +313,7 @@ export default function SilverParagraphPage() {
 
           {!isSubmitted || !isCorrect ? (
             <div className="space-y-3">
-              <label className="text-sm font-medium text-gray-700">
-                Fill in the missing word:
-              </label>
+              <label className="text-sm font-medium text-gray-700">Fill in the missing word:</label>
               <div className="flex gap-3">
                 <input
                   type="text"
@@ -394,23 +333,21 @@ export default function SilverParagraphPage() {
               </div>
               {isSubmitted && !isCorrect && (
                 <p className="text-sm text-red-500 flex items-center gap-1">
-                  <AlertCircle className="w-4 h-4" />
-                  Incorrect! Please try again.
+                  <AlertCircle className="w-4 h-4" /> Incorrect! Please try again.
                 </p>
               )}
             </div>
           ) : (
             <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
               <p className="text-sm font-semibold text-green-700 flex items-center justify-center gap-2">
-                <CheckCircle className="w-5 h-5" />
-                ✅ Correct!
+                <CheckCircle className="w-5 h-5" /> ✅ Correct!
               </p>
             </div>
           )}
 
           <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl">
             <p className="text-sm font-medium text-green-800">
-              💡 <span className="font-bold">Hint:</span> The missing word is: <span className="font-bold text-green-700 underline">{paragraph.missing_word}</span>
+              💡 Hint: <span className="font-bold text-green-700 underline">{paragraph.missing_word}</span>
             </p>
           </div>
 
@@ -418,20 +355,14 @@ export default function SilverParagraphPage() {
             <div className="mt-4 space-y-4">
               <div className="border-t border-gray-200 pt-4">
                 <p className="text-sm font-semibold text-purple-600 text-center mb-2">
-                  {isLevelComplete 
-                    ? '🎉 Level Complete! Claim your reward!' 
-                    : `📢 Paragraph ${paragraph.paragraph_number}/${totalCount} Complete!`}
+                  {isLevelComplete ? '🎉 Level Complete! Claim your reward!' : `📢 Paragraph ${paragraph.paragraph_number}/${totalCount} Complete!`}
                 </p>
                 <NativeBanner />
               </div>
 
               <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
                 <Clock className="w-4 h-4" />
-                <span>
-                  {isAdTimerRunning 
-                    ? `Please wait ${adTimerSeconds}s...` 
-                    : '✅ Ready to continue!'}
-                </span>
+                <span>{isAdTimerRunning ? `Please wait ${adTimerSeconds}s...` : '✅ Ready to continue!'}</span>
               </div>
 
               <button
@@ -443,24 +374,15 @@ export default function SilverParagraphPage() {
                     : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg hover:scale-[1.02]'
                 }`}
               >
-                {isAdTimerRunning 
-                  ? `⏳ Wait ${adTimerSeconds}s...` 
-                  : isNavigating 
-                    ? '⏳ Loading...' 
-                    : isLevelComplete 
-                      ? '🎉 Claim Reward & Continue' 
-                      : '✅ Continue to Next Paragraph'}
+                {isAdTimerRunning ? `⏳ Wait ${adTimerSeconds}s...` : isNavigating ? '⏳ Loading...' : isLevelComplete ? '🎉 Claim Reward & Continue' : '✅ Continue to Next Paragraph'}
               </button>
             </div>
           )}
         </div>
 
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
-          <div className="max-w-md mx-auto px-4 pointer-events-auto">
-            <BottomBanner />
-          </div>
+          <div className="max-w-md mx-auto px-4 pointer-events-auto"><BottomBanner /></div>
         </div>
-
       </div>
     </div>
   );
