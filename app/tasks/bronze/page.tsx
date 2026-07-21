@@ -58,7 +58,6 @@ export default function BronzeLevelPage() {
         return JSON.parse(text);
       } catch (parseError) {
         console.error('❌ JSON parse error for:', url, parseError);
-        console.log('Response text:', text.substring(0, 200));
         return null;
       }
     } catch (error) {
@@ -73,17 +72,17 @@ export default function BronzeLevelPage() {
 
       if (!statusData) {
         console.warn('⚠️ No status data received');
-        return;
+        return null;
       }
 
       if (statusData.error) {
         if (statusData.error === 'Unauthorized') {
           toast.error('Please login to continue');
           setLoading(false);
-          return;
+          return null;
         }
         console.error('Status API error:', statusData.error);
-        return;
+        return null;
       }
 
       setStatus(statusData);
@@ -103,9 +102,12 @@ export default function BronzeLevelPage() {
           }, 500);
         }
       }
+
+      return statusData;
     } catch (err) {
       console.error('fetchStatus error:', err);
       toast.error('Could not load task progress');
+      return null;
     } finally {
       setLoading(false);
     }
@@ -131,61 +133,48 @@ export default function BronzeLevelPage() {
 
   const claimReward = async () => {
     try {
-      const data = await safeFetch('/api/tasks/level/claim', { method: 'POST' });
-      
-      if (!data) {
-        toast.error('Could not claim your reward');
+      const res = await fetch('/api/tasks/level/claim', { method: 'POST' });
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!res.ok) {
+        toast.error(data.error || 'Could not claim your reward');
         return;
       }
-      
-      if (data.already_claimed) {
-        toast.success('🎉 Reward already claimed!');
-        setShowComplete(true);
-        return;
-      }
-      
       if (data.success) {
         setShowComplete(true);
-        toast.success('🎉 Level Complete! Reward claimed!');
-      } else {
-        toast.error(data.error || 'Could not claim your reward');
       }
-    } catch (error) {
-      console.error('Claim reward error:', error);
+    } catch {
       toast.error('Network error while claiming reward');
     } finally {
       pendingClaimRef.current = false;
     }
   };
 
-  // ✅ Fixed: Don't reload immediately, sync status first
-  const handleCompleteClose = async () => {
-    setShowComplete(false);
-    
-    try {
-      // ✅ Fetch latest status
-      await fetchStatus();
-      
-      // ✅ If reward is claimed, reload to reset level
-      if (status?.reward_claimed) {
-        setTimeout(() => {
-          window.location.reload();
-        }, 500);
-        return;
-      }
-      
-      // ✅ If not claimed, try claiming
-      if (status?.level_complete && !status?.reward_claimed) {
-        await claimReward();
-      }
-    } catch (error) {
-      console.error('Error closing modal:', error);
+  // ✅ Fallback path: user left the audio page mid ad-gate (closed tab,
+  // refreshed, pressed back). Status now reports ad_required with no
+  // current_audio — the same inline ad-gate shows here so they're never
+  // stuck. Once verified, auto-navigate straight to the next audio instead
+  // of leaving them to tap the "Next Audio" button a second time.
+  const handleMilestoneUnlocked = async () => {
+    const statusData = await fetchStatus();
+    if (
+      statusData?.current_audio &&
+      !statusData.ad_required &&
+      !statusData.level_complete &&
+      !statusData.locked
+    ) {
+      const nextIndex = (statusData.completed_audios || 0) + 1;
+      window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`;
     }
+    // If level_complete/locked/still ad_required — status is already
+    // updated above and the normal UI below will reflect it correctly.
   };
 
-  // ✅ Fallback path: user left the audio page mid ad-gate
-  const handleMilestoneUnlocked = async () => {
-    await fetchStatus();
+  const handleCompleteClose = () => {
+    setShowComplete(false);
+    setTimeout(() => {
+      window.location.reload();
+    }, 300);
   };
 
   const isMilestone = status?.current_audio
@@ -251,7 +240,8 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ✅ Fallback inline ad-gate */}
+        {/* ✅ Fallback inline ad-gate — only shows if the user ended up here
+            while an ad was still pending (didn't finish it on the audio page) */}
         {status?.ad_required && status?.milestone && (
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
             <MilestoneAdGate
@@ -261,7 +251,7 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ✅ Audio Button */}
+        {/* ✅ Audio Button - Only shown when no ad required and not complete */}
         {!status?.locked && !status?.ad_required && !status?.level_complete && status?.current_audio && (
           <button
             onClick={() => {
