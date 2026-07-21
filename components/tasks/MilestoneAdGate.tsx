@@ -10,7 +10,6 @@ interface MilestoneAdGateProps {
   onClose?: () => void;
 }
 
-// ✅ API Response interface
 interface VerifyResponse {
   success?: boolean;
   error?: string;
@@ -34,14 +33,51 @@ export default function MilestoneAdGate({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
+  // ✅ Start ad session - Call this BEFORE opening the ad
+  const startAdSession = async () => {
+    try {
+      const res = await fetch('/api/tasks/level/ads/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ milestone }),
+      });
+      
+      const text = await res.text();
+      if (text && text.trim()) {
+        try {
+          const data = JSON.parse(text);
+          console.log('✅ Ad session started:', data);
+          return data;
+        } catch {
+          console.warn('⚠️ Empty or invalid response from /ads/start');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to start ad session:', error);
+    }
+    return null;
+  };
+
   // Open ad and start timer
-  const handleOpenAd = () => {
+  const handleOpenAd = async () => {
+    setError(null);
+    setRetryCount(0);
+    
+    // ✅ First, start the ad session on server
+    setIsSubmitting(true);
+    const sessionData = await startAdSession();
+    setIsSubmitting(false);
+    
+    if (!sessionData) {
+      setError('Could not start ad session. Please try again.');
+      return;
+    }
+    
+    // ✅ Open Direct Link in new tab
     window.open(ADSTERRA_DIRECT_LINK_URL, '_blank', 'noopener');
     setAdOpened(true);
     setSecondsLeft(15);
     setIsTimerComplete(false);
-    setError(null);
-    setRetryCount(0);
 
     const timer = setInterval(() => {
       setSecondsLeft((prev) => {
@@ -62,7 +98,7 @@ export default function MilestoneAdGate({
     }
   }, [isTimerComplete, adOpened]);
 
-  // ✅ FIXED: Verify ad completion with proper typing
+  // ✅ FIXED: Verify ad completion
   const handleVerifyAd = async () => {
     if (isSubmitting || isVerified) return;
     setIsSubmitting(true);
@@ -80,7 +116,7 @@ export default function MilestoneAdGate({
         body: JSON.stringify({ milestone }),
       });
 
-      // ✅ Read response as text first
+      // ✅ Read response as text
       const text = await res.text();
       console.log('📢 Response text:', text);
       
@@ -104,9 +140,22 @@ export default function MilestoneAdGate({
         return;
       }
 
+      // ✅ Handle 400 error - "Ad was not started"
+      if (res.status === 400) {
+        console.error('❌ 400 Error:', data);
+        setError(data?.error || 'Ad was not started. Please watch the ad first and try again.');
+        setIsVerifying(false);
+        setIsSubmitting(false);
+        
+        // ✅ Reset ad state so user can watch again
+        setAdOpened(false);
+        setSecondsLeft(15);
+        setIsTimerComplete(false);
+        return;
+      }
+
       if (!res.ok) {
         console.error('❌ API error:', res.status, data);
-        // ✅ Use data.error with proper typing
         setError(data?.error || `Server error (${res.status}). Please try again.`);
         setIsVerifying(false);
         setIsSubmitting(false);
@@ -118,7 +167,6 @@ export default function MilestoneAdGate({
       setIsVerifying(false);
       toast.success('✅ Ad verified! Continuing...');
 
-      // ✅ Call onUnlocked after short delay
       setTimeout(() => {
         onUnlocked();
       }, 500);
@@ -139,8 +187,13 @@ export default function MilestoneAdGate({
     setError(null);
     
     if (adOpened && isTimerComplete) {
+      // Try verifying again
       handleVerifyAd();
     } else {
+      // Start fresh
+      setAdOpened(false);
+      setSecondsLeft(15);
+      setIsTimerComplete(false);
       handleOpenAd();
     }
   };
@@ -186,9 +239,10 @@ export default function MilestoneAdGate({
           {!adOpened ? (
             <button
               onClick={handleOpenAd}
-              className="px-4 py-1.5 bg-[#6C63FF] text-white rounded-lg text-xs font-semibold hover:bg-[#5a52e0] transition-colors"
+              disabled={isSubmitting}
+              className="px-4 py-1.5 bg-[#6C63FF] text-white rounded-lg text-xs font-semibold hover:bg-[#5a52e0] transition-colors disabled:opacity-50"
             >
-              Watch Ad
+              {isSubmitting ? 'Loading...' : 'Watch Ad'}
             </button>
           ) : isVerified ? (
             <div className="flex items-center gap-1 text-green-600">
@@ -266,10 +320,11 @@ export default function MilestoneAdGate({
       ) : (
         <button
           onClick={handleOpenAd}
-          className="w-full py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
+          disabled={isSubmitting}
+          className="w-full py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
         >
           <ExternalLink className="w-4 h-4" />
-          Watch Ad to Continue
+          {isSubmitting ? 'Starting...' : 'Watch Ad to Continue'}
         </button>
       )}
 
