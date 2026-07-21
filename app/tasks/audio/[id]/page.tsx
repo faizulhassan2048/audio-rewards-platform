@@ -33,6 +33,18 @@ interface MilestoneGateState {
   levelComplete: boolean;
 }
 
+// ✅ API Response interface
+interface CompleteResponse {
+  alreadyCompleted?: boolean;
+  error?: string;
+  show_ad?: boolean;
+  milestone?: number;
+  next_audio?: NextAudioRef | null;
+  level_complete?: boolean;
+  completed_audios?: number;
+  total_audios?: number;
+}
+
 const safeFetch = async (url: string, options?: RequestInit) => {
   try {
     const res = await fetch(url, options);
@@ -41,6 +53,7 @@ const safeFetch = async (url: string, options?: RequestInit) => {
     try {
       return JSON.parse(text);
     } catch {
+      console.error('JSON parse error for:', url);
       return null;
     }
   } catch {
@@ -68,7 +81,7 @@ export default function AudioPlayerPage() {
   const [pausedBySystem, setPausedBySystem] = useState(false);
   const [milestoneGate, setMilestoneGate] = useState<MilestoneGateState | null>(null);
   
-  // ✅ NEW: Next button states
+  // Next button states
   const [nextAudioData, setNextAudioData] = useState<NextAudioRef | null>(null);
   const [showNextButton, setShowNextButton] = useState(false);
 
@@ -77,7 +90,7 @@ export default function AudioPlayerPage() {
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
 
-  // ✅ Tab visibility detection
+  // Tab visibility detection
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -102,7 +115,7 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying]);
 
-  // ✅ Window blur detection
+  // Window blur detection
   useEffect(() => {
     const handleBlur = () => {
       if (audioRef.current && isPlaying) {
@@ -126,7 +139,7 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying]);
 
-  // ✅ Volume check (15% minimum)
+  // Volume check (15% minimum)
   useEffect(() => {
     volumeCheckInterval.current = setInterval(() => {
       if (!audioRef.current || audioComplete) return;
@@ -150,11 +163,10 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // ✅ Fetch audio with auto-redirect on refresh
+  // Fetch audio with auto-redirect on refresh
   useEffect(() => {
     const fetchAudio = async () => {
       try {
-        // ✅ First check status
         const statusData = await safeFetch('/api/tasks/level/status');
 
         if (!statusData) {
@@ -162,19 +174,16 @@ export default function AudioPlayerPage() {
           return;
         }
 
-        // ✅ If level complete
         if (statusData?.level_complete) {
           router.replace('/tasks/bronze?complete=true');
           return;
         }
 
-        // ✅ If ad required
         if (statusData?.ad_required) {
           router.replace('/tasks/bronze');
           return;
         }
 
-        // ✅ Check if this audio is already completed
         const completedIds = statusData.completed_audio_ids || [];
         if (completedIds.includes(audioId)) {
           console.log('⚠️ Audio already completed, redirecting to next...');
@@ -190,7 +199,6 @@ export default function AudioPlayerPage() {
           return;
         }
 
-        // ✅ If wrong audio, redirect
         if (statusData?.current_audio?.id !== audioId) {
           if (statusData?.current_audio) {
             const correctIndex = (statusData.completed_audios || 0) + 1;
@@ -206,7 +214,6 @@ export default function AudioPlayerPage() {
         const index = statusData.completed_audios + 1;
         const total = statusData.total_audios || 15;
 
-        // ✅ Fetch audio data
         const [sessionRes, audioRes] = await Promise.all([
           fetch('/api/audio/session', {
             method: 'POST',
@@ -293,7 +300,7 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Handle audio complete - UPDATED with Next button flow
+  // ✅ Handle audio complete - FIXED with proper typing
   const handleAudioComplete = async () => {
     if (isSubmitting || !mountRef.current) return;
     setIsSubmitting(true);
@@ -321,13 +328,86 @@ export default function AudioPlayerPage() {
         }),
       });
 
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
+      // ✅ Handle 409 Conflict - Audio already completed
+      if (res.status === 409) {
+        console.log('⚠️ Audio already completed (409 Conflict)');
+        toast.info('⏩ Audio already completed!');
+        
+        // ✅ Fetch fresh status to get next audio
+        const statusData = await safeFetch('/api/tasks/level/status');
+        if (statusData?.current_audio) {
+          const nextIndex = (statusData.completed_audios || 0) + 1;
+          setNextAudioData({
+            id: statusData.current_audio.id,
+            title: statusData.current_audio.title || `Audio ${nextIndex}`,
+            audio_url: statusData.current_audio.audio_url,
+            thumbnail_url: statusData.current_audio.thumbnail_url || null,
+            duration_seconds: statusData.current_audio.duration_seconds || 0,
+          });
+          setShowNextButton(true);
+          setIsSubmitting(false);
+          return;
+        } else if (statusData?.level_complete) {
+          router.replace('/tasks/bronze?complete=true');
+          return;
+        } else {
+          router.replace('/tasks/bronze');
+          return;
+        }
+      }
 
-      // ✅ Handle "Already completed"
+      // ✅ Handle empty response
+      const text = await res.text();
+      if (!text) {
+        console.warn('⚠️ Empty response from server');
+        // ✅ Try to get status
+        const statusData = await safeFetch('/api/tasks/level/status');
+        if (statusData?.current_audio) {
+          const nextIndex = (statusData.completed_audios || 0) + 1;
+          setNextAudioData({
+            id: statusData.current_audio.id,
+            title: statusData.current_audio.title || `Audio ${nextIndex}`,
+            audio_url: statusData.current_audio.audio_url,
+            thumbnail_url: statusData.current_audio.thumbnail_url || null,
+            duration_seconds: statusData.current_audio.duration_seconds || 0,
+          });
+          setShowNextButton(true);
+          setIsSubmitting(false);
+          return;
+        }
+        router.replace('/tasks/bronze');
+        return;
+      }
+
+      // ✅ Parse JSON with proper typing
+      let data: CompleteResponse = {};
+      try {
+        data = JSON.parse(text) as CompleteResponse;
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        toast.error('Invalid response from server');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // ✅ Handle "Already completed" from response body
       if (data.alreadyCompleted || data.error === 'Already completed') {
         toast.info('⏩ Already completed!');
         setIsSubmitting(false);
+        const statusData = await safeFetch('/api/tasks/level/status');
+        if (statusData?.current_audio) {
+          const nextIndex = (statusData.completed_audios || 0) + 1;
+          setNextAudioData({
+            id: statusData.current_audio.id,
+            title: statusData.current_audio.title || `Audio ${nextIndex}`,
+            audio_url: statusData.current_audio.audio_url,
+            thumbnail_url: statusData.current_audio.thumbnail_url || null,
+            duration_seconds: statusData.current_audio.duration_seconds || 0,
+          });
+          setShowNextButton(true);
+        } else {
+          router.replace('/tasks/bronze');
+        }
         return;
       }
 
@@ -350,7 +430,7 @@ export default function AudioPlayerPage() {
       // ✅ Milestone hit - Show ad gate
       if (data.show_ad) {
         setMilestoneGate({
-          milestone: data.milestone,
+          milestone: data.milestone || 0,
           nextAudio: data.next_audio || null,
           levelComplete: !!data.level_complete,
         });
@@ -362,13 +442,13 @@ export default function AudioPlayerPage() {
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
         setIsSubmitting(false);
-        // ✅ Show complete state with Next button
+        setShowNextButton(false);
         return;
       }
 
-      // ✅ ✅ ✅ FIX: Don't auto-navigate - just show Next button
+      // ✅ Store next audio and show button
       if (data.next_audio) {
-        // ✅ Store next audio in state for manual navigation
+        console.log('📢 Next audio data:', data.next_audio);
         setNextAudioData({
           id: data.next_audio.id,
           title: data.next_audio.title || `Audio ${(audio?.index || 0) + 1}`,
@@ -384,6 +464,7 @@ export default function AudioPlayerPage() {
 
       // ✅ No next audio - go to bronze
       setIsSubmitting(false);
+      router.replace('/tasks/bronze');
       
     } catch (error) {
       console.error('Error completing audio:', error);
@@ -393,7 +474,7 @@ export default function AudioPlayerPage() {
     }
   };
 
-  // ✅ Handle milestone ad gate completion
+  // Handle milestone ad gate completion
   const handleMilestoneUnlocked = () => {
     if (!milestoneGate) return;
 
@@ -418,7 +499,7 @@ export default function AudioPlayerPage() {
       return;
     }
 
-    // ✅ Fallback: fetch status and navigate
+    // Fallback: fetch status and navigate
     const fetchAndNavigate = async () => {
       try {
         const statusData = await safeFetch('/api/tasks/level/status');
@@ -438,13 +519,18 @@ export default function AudioPlayerPage() {
     fetchAndNavigate();
   };
 
-  // ✅ Handle Next Audio button click
+  // Handle Next Audio button click - FIXED
   const handleNextAudio = () => {
-    if (!nextAudioData) {
-      // ✅ Fallback: fetch status
+    console.log('🔘 Next button clicked');
+    console.log('📦 nextAudioData:', nextAudioData);
+    
+    if (!nextAudioData || !nextAudioData.id) {
+      console.warn('⚠️ No next audio data, fetching from status...');
+      // Fallback: fetch status
       const fetchAndNavigate = async () => {
         try {
           const statusData = await safeFetch('/api/tasks/level/status');
+          console.log('📊 Status data:', statusData);
           if (statusData?.current_audio) {
             const nextIndex = (statusData.completed_audios || 0) + 1;
             router.replace(
@@ -453,7 +539,8 @@ export default function AudioPlayerPage() {
           } else {
             router.replace('/tasks/bronze');
           }
-        } catch {
+        } catch (error) {
+          console.error('Fallback navigation error:', error);
           router.replace('/tasks/bronze');
         }
       };
@@ -462,11 +549,17 @@ export default function AudioPlayerPage() {
     }
 
     const nextIndex = (audio?.index || 0) + 1;
+    const total = audio?.total || 15;
+    
+    // Clear states before navigation
     setShowNextButton(false);
     setNextAudioData(null);
+    setAudioComplete(false);
+    
+    console.log(`🎯 Navigating to: /tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${total}`);
     
     router.replace(
-      `/tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${audio?.total || 15}`
+      `/tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${total}`
     );
   };
 
@@ -661,7 +754,7 @@ export default function AudioPlayerPage() {
             </div>
           )}
 
-          {/* ✅ UPDATED: Audio Complete with Next Button */}
+          {/* Audio Complete with Next Button */}
           {audioComplete && !milestoneGate && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
@@ -669,7 +762,7 @@ export default function AudioPlayerPage() {
                 <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
               </div>
               
-              {showNextButton ? (
+              {showNextButton && nextAudioData ? (
                 <button
                   onClick={handleNextAudio}
                   className="w-full mt-2 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
@@ -677,13 +770,18 @@ export default function AudioPlayerPage() {
                   <ArrowRight className="w-4 h-4" />
                   Next Audio
                 </button>
+              ) : showNextButton && !nextAudioData ? (
+                <div className="flex items-center justify-center gap-2 mt-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-green-600" />
+                  <p className="text-xs text-green-600">Loading next audio...</p>
+                </div>
               ) : isSubmitting ? (
                 <div className="flex items-center justify-center gap-2 mt-2">
                   <Loader2 className="w-4 h-4 animate-spin text-green-600" />
                   <p className="text-xs text-green-600">Saving progress...</p>
                 </div>
               ) : (
-                <p className="text-xs text-green-600">Loading next audio...</p>
+                <p className="text-xs text-green-600">Preparing next audio...</p>
               )}
             </div>
           )}
