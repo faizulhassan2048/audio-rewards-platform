@@ -29,8 +29,9 @@ export async function POST(req: Request) {
     }
 
     const completedIds = level.silver_completed_paragraph_ids || [];
+
+    // ✅ Already completed — return next paragraph
     if (completedIds.includes(paragraph_id)) {
-      // ✅ Already completed - return next paragraph
       const { data: paragraphs } = await supabase
         .from('silver_paragraphs')
         .select('id, paragraph_number, content, missing_word')
@@ -52,7 +53,6 @@ export async function POST(req: Request) {
         completed_paragraphs: level.silver_completed_paragraphs || 0,
         total_paragraphs: TOTAL_PARAGRAPHS,
         level_complete: (level.silver_completed_paragraphs || 0) >= TOTAL_PARAGRAPHS,
-        show_ad: true,
         next_paragraph: nextParagraph,
       });
     }
@@ -101,9 +101,8 @@ export async function POST(req: Request) {
       success: true,
       completed_paragraphs: newCompletedCount,
       total_paragraphs: TOTAL_PARAGRAPHS,
-      show_ad: true, // ✅ Always show Native Banner after EVERY paragraph
-      level_complete: isLevelComplete,
       next_paragraph: nextParagraph,
+      level_complete: isLevelComplete,
     });
   } catch (error) {
     console.error('Silver complete error:', error);
