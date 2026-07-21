@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+export const revalidate = 0
+
 const LEVEL_NAME = 'bronze'
 const TOTAL_AUDIOS = 15
 
@@ -111,7 +115,7 @@ export async function GET() {
           .single()
         if (error) return NextResponse.json({ error: error.message }, { status: 500 })
         level = reset
-        
+
         const firstAudioId = level.audio_ids?.[0]
         let audio = null
         if (firstAudioId) {
