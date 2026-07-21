@@ -1,168 +1,229 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import NativeBanner from '@/components/ads/NativeBanner';
-import SmartlinkButton from '@/components/ads/SmartlinkButton';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-
-const SMARTLINK_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
+import { Loader2, CheckCircle, ExternalLink, Clock } from 'lucide-react';
 
 interface MilestoneAdGateProps {
   milestone: number;
   onUnlocked: () => void;
+  onClose?: () => void;
 }
 
-// ✅ Safe JSON fetch helper
-const safeFetch = async (url: string, options?: RequestInit) => {
-  try {
-    const res = await fetch(url, options);
-    const text = await res.text();
-    if (!text) {
-      console.warn('⚠️ Empty response from:', url);
-      return null;
-    }
-    try {
-      return JSON.parse(text);
-    } catch (parseError) {
-      console.error('❌ JSON parse error for:', url, parseError);
-      console.log('Response text:', text.substring(0, 200));
-      return null;
-    }
-  } catch (error) {
-    console.error('❌ Fetch error for:', url, error);
-    return null;
-  }
-};
+// ✅ Adsterra Direct Link - Opens in new tab
+const ADSTERRA_DIRECT_LINK_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
 
-export default function MilestoneAdGate({ milestone, onUnlocked }: MilestoneAdGateProps) {
-  const [verifying, setVerifying] = useState(false);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [skipToVerify, setSkipToVerify] = useState(false);
-  const [isVerifyingAd, setIsVerifyingAd] = useState(false);
+export default function MilestoneAdGate({ 
+  milestone, 
+  onUnlocked,
+  onClose 
+}: MilestoneAdGateProps) {
+  const [adOpened, setAdOpened] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(15);
+  const [isTimerComplete, setIsTimerComplete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const startedRef = useRef(false);
-  const verifyInProgress = useRef(false);
+  // ✅ Open ad and start timer
+  const handleOpenAd = () => {
+    // Open Direct Link in new tab
+    window.open(ADSTERRA_DIRECT_LINK_URL, '_blank', 'noopener');
+    setAdOpened(true);
+    setSecondsLeft(15);
+    setIsTimerComplete(false);
+    setError(null);
 
-  // ✅ Mark the ad-gate as started server-side
+    // Start timer
+    const timer = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setIsTimerComplete(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  // ✅ Auto-verify when timer completes
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    
-    safeFetch('/api/tasks/level/ads/start', { method: 'POST' }).catch(() => {});
-
-    try {
-      if (sessionStorage.getItem('milestone_ad_pending') === '1') {
-        sessionStorage.removeItem('milestone_ad_pending');
-        setSkipToVerify(true);
-      }
-    } catch { /* sessionStorage unavailable */ }
-  }, []);
-
-  // ✅ Verify with debounce to prevent duplicate calls
-  const verify = async () => {
-    // ✅ Prevent multiple simultaneous verify calls
-    if (verifyInProgress.current) {
-      console.log('⏳ Verify already in progress, skipping...');
-      return;
+    if (isTimerComplete && adOpened && !isVerified && !isSubmitting) {
+      handleVerifyAd();
     }
-    
-    verifyInProgress.current = true;
-    setVerifying(true);
-    setVerifyError(null);
+  }, [isTimerComplete, adOpened]);
+
+  // ✅ Verify ad completion
+  const handleVerifyAd = async () => {
+    if (isSubmitting || isVerified) return;
+    setIsSubmitting(true);
+    setIsVerifying(true);
+    setError(null);
 
     try {
-      console.log('🔍 Verifying ad for milestone:', milestone);
-      
-      // ✅ First verify the ad
-      const data = await safeFetch('/api/tasks/level/ads/verify', { method: 'POST' });
+      const res = await fetch('/api/tasks/level/ads/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ milestone }),
+      });
 
-      if (!data) {
-        setVerifyError('Could not verify ad. Please try again.');
-        verifyInProgress.current = false;
-        setVerifying(false);
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+
+      if (!res.ok) {
+        setError(data.error || 'Could not verify ad. Please try again.');
+        setIsVerifying(false);
+        setIsSubmitting(false);
         return;
       }
 
-      // ✅ If already unlocked or success
-      if (data.alreadyUnlocked || data.alreadyProcessed || data.success) {
-        toast.success('✅ Ad verified!');
-        
-        // ✅ IMPORTANT: Wait for database to commit before proceeding
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        setVerifying(false);
-        verifyInProgress.current = false;
+      // ✅ Success
+      setIsVerified(true);
+      setIsVerifying(false);
+      toast.success('✅ Ad verified! Continuing...');
+
+      // ✅ Call onUnlocked after short delay
+      setTimeout(() => {
         onUnlocked();
-        return;
-      }
+      }, 500);
 
-      // ✅ Not enough time? Retry after delay
-      if (!data.success) {
-        setVerifyError('Just a moment, confirming your ad...');
-        
-        // ✅ Retry after 5 seconds
-        setTimeout(async () => {
-          try {
-            console.log('🔄 Retrying verify...');
-            const retryData = await safeFetch('/api/tasks/level/ads/verify', { method: 'POST' });
-            
-            if (retryData?.success || retryData?.alreadyUnlocked) {
-              setVerifyError(null);
-              toast.success('✅ Ad verified!');
-              await new Promise(resolve => setTimeout(resolve, 500));
-              verifyInProgress.current = false;
-              setVerifying(false);
-              onUnlocked();
-              return;
-            }
-            
-            setVerifyError(retryData?.error || 'Could not verify ad. Please try again.');
-          } catch (err) {
-            console.error('Retry verify error:', err);
-            setVerifyError('Network error. Please try again.');
-          } finally {
-            verifyInProgress.current = false;
-            setVerifying(false);
-          }
-        }, 5000);
-        return;
-      }
-    } catch (error) {
-      console.error('Verify error:', error);
-      setVerifyError('Network error verifying ad. Please try again.');
-      verifyInProgress.current = false;
-      setVerifying(false);
+    } catch {
+      setError('Network error. Please try again.');
+      setIsVerifying(false);
+      setIsSubmitting(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  const progress = ((15 - secondsLeft) / 15) * 100;
+
   return (
-    <div className="space-y-4">
-      <div className="border-t border-gray-200 pt-4">
-        <p className="text-sm font-semibold text-purple-600 text-center mb-2">
-          ⭐ Milestone {milestone}/15 — complete an ad to continue
-        </p>
-        <NativeBanner />
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-[#6C63FF]/10 flex items-center justify-center">
+            <ExternalLink className="w-4 h-4 text-[#6C63FF]" />
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-800 text-sm">
+              Milestone {milestone}/15
+            </h3>
+            <p className="text-xs text-gray-500">
+              {isVerified ? '✅ Verified!' : 'Complete ad to continue'}
+            </p>
+          </div>
+        </div>
+        {isVerified && (
+          <div className="bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full text-xs font-semibold">
+            ✓ Done
+          </div>
+        )}
       </div>
 
-      {skipToVerify ? (
+      {/* Ad Display */}
+      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl p-4 mb-4 border border-purple-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 flex items-center justify-center">
+              <span className="text-white text-xl">📢</span>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-800 text-sm">Sponsored Content</p>
+              <p className="text-xs text-gray-500">Watch ad to unlock next audio</p>
+            </div>
+          </div>
+          {!adOpened ? (
+            <button
+              onClick={handleOpenAd}
+              className="px-4 py-1.5 bg-[#6C63FF] text-white rounded-lg text-xs font-semibold hover:bg-[#5a52e0] transition-colors"
+            >
+              Watch Ad
+            </button>
+          ) : isVerified ? (
+            <div className="flex items-center gap-1 text-green-600">
+              <CheckCircle className="w-4 h-4" />
+              <span className="text-xs font-semibold">Verified</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
+              <span className="text-xs font-medium text-amber-600">{secondsLeft}s</span>
+            </div>
+          )}
+        </div>
+
+        {/* Progress Bar */}
+        {adOpened && !isVerified && (
+          <div className="mt-3">
+            <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 transition-all duration-1000"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1 text-center">
+              {isTimerComplete ? '✓ Ad complete!' : `Please wait ${secondsLeft}s...`}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Continue Button */}
+      {isVerified ? (
         <button
-          onClick={verify}
-          disabled={verifying || isVerifyingAd}
-          className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-60"
+          onClick={onUnlocked}
+          className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
         >
-          {verifying ? '⏳ Verifying...' : '✅ I completed the ad — Continue'}
+          <CheckCircle className="w-4 h-4" />
+          Continue to Next Audio
+        </button>
+      ) : isVerifying ? (
+        <button
+          disabled
+          className="w-full py-3 bg-gray-200 text-gray-500 rounded-xl font-semibold flex items-center justify-center gap-2 cursor-not-allowed"
+        >
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Verifying...
+        </button>
+      ) : adOpened && !isTimerComplete ? (
+        <button
+          disabled
+          className="w-full py-3 bg-gray-200 text-gray-500 rounded-xl font-semibold flex items-center justify-center gap-2 cursor-not-allowed"
+        >
+          <Clock className="w-4 h-4 animate-pulse" />
+          Please wait {secondsLeft}s
         </button>
       ) : (
-        <SmartlinkButton
-          smartlinkUrl={SMARTLINK_URL}
-          onComplete={verify}
-          buttonText={verifying ? '⏳ Verifying...' : 'Continue to Next Audio'}
-        />
+        <button
+          onClick={handleOpenAd}
+          className="w-full py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
+        >
+          <ExternalLink className="w-4 h-4" />
+          Watch Ad to Continue
+        </button>
       )}
 
-      {verifyError && (
-        <p className="text-xs text-red-500 text-center">{verifyError}</p>
+      {/* Error Message */}
+      {error && (
+        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-xs text-red-600">{error}</p>
+          <button
+            onClick={handleVerifyAd}
+            className="mt-1 text-xs text-[#6C63FF] font-semibold hover:underline"
+          >
+            Retry
+          </button>
+        </div>
       )}
+
+      {/* Footer */}
+      <p className="text-[10px] text-gray-400 text-center mt-3">
+        Relevant data is sent to Google
+      </p>
     </div>
   );
 }

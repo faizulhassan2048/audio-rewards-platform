@@ -170,7 +170,7 @@ export default function AudioPlayerPage() {
           return;
         }
 
-        // ✅ ✅ ✅ FIX: Check if this audio is already completed
+        // ✅ Check if this audio is already completed
         const completedIds = statusData.completed_audio_ids || [];
         if (completedIds.includes(audioId)) {
           console.log('⚠️ Audio already completed, redirecting to next...');
@@ -323,7 +323,6 @@ export default function AudioPlayerPage() {
       // ✅ Handle "Already completed"
       if (data.alreadyCompleted || data.error === 'Already completed') {
         toast.info('⏩ Already completed! Moving to next...');
-        // ✅ Go to bronze page, status will handle next audio
         router.replace('/tasks/bronze');
         setIsSubmitting(false);
         return;
@@ -359,15 +358,11 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // ✅ ✅ ✅ FIX: Use router.replace with longer delay to ensure server state updates
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
         
-        // ✅ Wait for database to commit before navigating
         await new Promise(resolve => setTimeout(resolve, 800));
-        
-        // ✅ Use replace instead of push to avoid back button issues
         router.replace(
           `/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`
         );
@@ -384,19 +379,53 @@ export default function AudioPlayerPage() {
     }
   };
 
+  // ✅ ✅ ✅ UPDATED: Handle milestone ad gate completion
   const handleMilestoneUnlocked = () => {
     if (!milestoneGate) return;
-    if (milestoneGate.levelComplete) {
+
+    // ✅ Store gate data before clearing
+    const { levelComplete, nextAudio } = milestoneGate;
+    
+    // ✅ Clear milestone gate first
+    setMilestoneGate(null);
+
+    if (levelComplete) {
       toast.success('🎉 Level Complete!');
       router.replace('/tasks/bronze?complete=true');
       return;
     }
-    if (milestoneGate.nextAudio) {
+
+    if (nextAudio) {
       const nextIndex = (audio?.index || 0) + 1;
-      router.replace(`/tasks/audio/${milestoneGate.nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
+      toast.success('🎯 Ad complete! Loading next audio...');
+      
+      // ✅ Small delay before navigation
+      setTimeout(() => {
+        router.replace(
+          `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`
+        );
+      }, 500);
       return;
     }
-    router.replace('/tasks/bronze');
+
+    // ✅ Fallback: fetch status and navigate
+    const fetchAndNavigate = async () => {
+      try {
+        const statusData = await safeFetch('/api/tasks/level/status');
+        if (statusData?.current_audio) {
+          const nextIndex = (statusData.completed_audios || 0) + 1;
+          router.replace(
+            `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`
+          );
+        } else {
+          router.replace('/tasks/bronze');
+        }
+      } catch {
+        router.replace('/tasks/bronze');
+      }
+    };
+
+    fetchAndNavigate();
   };
 
   // Toggle play/pause
