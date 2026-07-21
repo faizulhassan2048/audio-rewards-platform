@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation'; // ✅ Added useRouter
+import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -49,8 +49,8 @@ const safeFetch = async (url: string, options?: RequestInit) => {
 };
 
 export default function AudioPlayerPage() {
+  const router = useRouter();
   const params = useParams();
-  const router = useRouter(); // ✅ Added router
   const audioId = params.id as string;
 
   const [loading, setLoading] = useState(true);
@@ -72,7 +72,6 @@ export default function AudioPlayerPage() {
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
-  const navigatingRef = useRef(false); // ✅ Prevent double navigation
 
   // ✅ Tab visibility detection
   useEffect(() => {
@@ -147,41 +146,63 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // ✅ Fetch audio — UPDATED with router.push instead of window.location
+  // ✅ Fetch audio with auto-redirect on refresh
   useEffect(() => {
     const fetchAudio = async () => {
       try {
+        // ✅ First check status
         const statusData = await safeFetch('/api/tasks/level/status');
 
         if (!statusData) {
-          router.push('/tasks/bronze');
+          router.replace('/tasks/bronze');
           return;
         }
 
-        if (statusData.level_complete) {
-          router.push('/tasks/bronze?complete=true');
+        // ✅ If level complete
+        if (statusData?.level_complete) {
+          router.replace('/tasks/bronze?complete=true');
           return;
         }
 
-        if (statusData.ad_required) {
-          router.push('/tasks/bronze');
+        // ✅ If ad required
+        if (statusData?.ad_required) {
+          router.replace('/tasks/bronze');
           return;
         }
 
-        if (!statusData.current_audio || statusData.current_audio.id !== audioId) {
-          if (statusData.current_audio?.id) {
-            const correctIndex = (statusData.completed_audios || 0) + 1;
-            const correctTotal = statusData.total_audios || 15;
-            router.push(`/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${correctTotal}`);
-          } else {
-            router.push('/tasks/bronze');
+        // ✅ ✅ ✅ FIX: Check if this audio is already completed
+        const completedIds = statusData.completed_audio_ids || [];
+        if (completedIds.includes(audioId)) {
+          console.log('⚠️ Audio already completed, redirecting to next...');
+          const nextAudioId = statusData.audio_ids?.[statusData.completed_audios];
+          if (nextAudioId) {
+            const nextIndex = (statusData.completed_audios || 0) + 1;
+            router.replace(
+              `/tasks/audio/${nextAudioId}?index=${nextIndex}&total=${statusData.total_audios || 15}`
+            );
+            return;
           }
+          router.replace('/tasks/bronze');
+          return;
+        }
+
+        // ✅ If wrong audio, redirect
+        if (statusData?.current_audio?.id !== audioId) {
+          if (statusData?.current_audio) {
+            const correctIndex = (statusData.completed_audios || 0) + 1;
+            router.replace(
+              `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`
+            );
+            return;
+          }
+          router.replace('/tasks/bronze');
           return;
         }
 
         const index = statusData.completed_audios + 1;
         const total = statusData.total_audios || 15;
 
+        // ✅ Fetch audio data
         const [sessionRes, audioRes] = await Promise.all([
           fetch('/api/audio/session', {
             method: 'POST',
@@ -221,7 +242,7 @@ export default function AudioPlayerPage() {
       } catch (error) {
         console.error('Error fetching audio:', error);
         toast.error('Could not load audio');
-        router.push('/tasks/bronze');
+        router.replace('/tasks/bronze');
       } finally {
         setLoading(false);
       }
@@ -268,10 +289,9 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Handle audio complete - UPDATED with router.push
+  // ✅ Handle audio complete with proper navigation
   const handleAudioComplete = async () => {
-    if (isSubmitting || !mountRef.current || navigatingRef.current) return;
-    navigatingRef.current = true;
+    if (isSubmitting || !mountRef.current) return;
     setIsSubmitting(true);
     setAudioComplete(true);
 
@@ -300,18 +320,27 @@ export default function AudioPlayerPage() {
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
 
-      if (!res.ok) {
-        if (data.error === 'AD_REQUIRED') {
-          toast.info('📢 Complete ad to continue');
-          router.push('/tasks/bronze');
-          return;
-        }
-        toast.error(data.error || 'Could not save progress');
-        router.push('/tasks/bronze');
+      // ✅ Handle "Already completed"
+      if (data.alreadyCompleted || data.error === 'Already completed') {
+        toast.info('⏩ Already completed! Moving to next...');
+        // ✅ Go to bronze page, status will handle next audio
+        router.replace('/tasks/bronze');
+        setIsSubmitting(false);
         return;
       }
 
-      // ✅ Milestone hit — inline ad-gate
+      if (!res.ok) {
+        if (data.error === 'AD_REQUIRED') {
+          toast.info('📢 Complete ad to continue');
+          router.replace('/tasks/bronze');
+          return;
+        }
+        toast.error(data.error || 'Could not save progress');
+        router.replace('/tasks/bronze');
+        return;
+      }
+
+      // ✅ Milestone hit
       if (data.show_ad) {
         setMilestoneGate({
           milestone: data.milestone,
@@ -319,58 +348,55 @@ export default function AudioPlayerPage() {
           levelComplete: !!data.level_complete,
         });
         setIsSubmitting(false);
-        navigatingRef.current = false;
         return;
       }
 
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
         setTimeout(() => {
-          router.push('/tasks/bronze?complete=true');
-        }, 500);
+          router.replace('/tasks/bronze?complete=true');
+        }, 1500);
         return;
       }
 
+      // ✅ ✅ ✅ FIX: Use router.replace with longer delay to ensure server state updates
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
         
-        // ✅ FIXED: Use router.push instead of window.location.href
-        // This prevents page reload and "Audio not found" flash
-        setTimeout(() => {
-          router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
-          navigatingRef.current = false;
-        }, 500);
+        // ✅ Wait for database to commit before navigating
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // ✅ Use replace instead of push to avoid back button issues
+        router.replace(
+          `/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`
+        );
       } else {
-        router.push('/tasks/bronze');
+        router.replace('/tasks/bronze');
       }
     } catch (error) {
       console.error('Error completing audio:', error);
       toast.error('Network error');
       setIsSubmitting(false);
       setAudioComplete(false);
-      navigatingRef.current = false;
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ✅ Called only after the server has verified the ad was actually watched.
   const handleMilestoneUnlocked = () => {
-    if (!milestoneGate || navigatingRef.current) return;
-    navigatingRef.current = true;
-    
+    if (!milestoneGate) return;
     if (milestoneGate.levelComplete) {
       toast.success('🎉 Level Complete!');
-      router.push('/tasks/bronze?complete=true');
+      router.replace('/tasks/bronze?complete=true');
       return;
     }
     if (milestoneGate.nextAudio) {
       const nextIndex = (audio?.index || 0) + 1;
-      router.push(`/tasks/audio/${milestoneGate.nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
+      router.replace(`/tasks/audio/${milestoneGate.nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
       return;
     }
-    router.push('/tasks/bronze');
+    router.replace('/tasks/bronze');
   };
 
   // Toggle play/pause
@@ -424,10 +450,7 @@ export default function AudioPlayerPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Audio not found</p>
-          <Link href="/tasks/bronze" className="text-[#6C63FF] hover:underline">
-            Back to Level
-          </Link>
+          <p className="text-gray-500 mb-4">Loading next audio...</p>
         </div>
       </div>
     );
