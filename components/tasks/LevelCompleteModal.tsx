@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { PartyPopper, Coins, Gift, Loader2, Clock } from 'lucide-react';
 
 // ✅ Adsterra Direct Link
@@ -17,6 +18,7 @@ export default function LevelCompleteModal({
   bonusCoins, 
   onClose 
 }: LevelCompleteModalProps) {
+  const router = useRouter();
   const [bonusState, setBonusState] = useState<'idle' | 'claiming' | 'claimed' | 'error'>('idle');
   const [bonusError, setBonusError] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(15);
@@ -72,12 +74,17 @@ export default function LevelCompleteModal({
     }
   };
 
-  // ✅ Handle close with debounce to prevent double click
+  // ✅ FIXED: Handle close with navigation
   const handleClose = () => {
     if (isClosing) return;
     setIsClosing(true);
+    
+    // ✅ Call onClose first, then navigate
+    onClose();
+    
+    // ✅ Navigate to tasks page after modal closes
     setTimeout(() => {
-      onClose();
+      router.push('/tasks');
     }, 200);
   };
 
@@ -144,6 +151,7 @@ export default function LevelCompleteModal({
 
         <p className="text-xs text-gray-400 mb-5">Come back tomorrow at midnight for the next round.</p>
         
+        {/* ✅ FIXED: Done button with navigation */}
         <button
           onClick={handleClose}
           disabled={isClosing}

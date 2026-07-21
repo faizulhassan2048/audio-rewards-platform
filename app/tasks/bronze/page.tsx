@@ -43,22 +43,21 @@ export default function BronzeLevelPage() {
   const [countdown, setCountdown] = useState('');
 
   const pendingClaimRef = useRef(false);
-  const isResetting = useRef(false);
 
-  // ✅ Safe JSON fetch helper
+  // ✅ Safe JSON fetch helper - returns valid object
   const safeFetch = async (url: string, options?: RequestInit) => {
     try {
       const res = await fetch(url, options);
       const text = await res.text();
       if (!text) {
         console.warn('⚠️ Empty response from:', url);
-        return null;
+        return { completed_audios: 0, total_audios: 15 };
       }
       try {
         return JSON.parse(text);
       } catch (parseError) {
         console.error('❌ JSON parse error for:', url, parseError);
-        return null;
+        return { completed_audios: 0, total_audios: 15 };
       }
     } catch (error) {
       console.error('❌ Fetch error for:', url, error);
@@ -72,6 +71,7 @@ export default function BronzeLevelPage() {
 
       if (!statusData) {
         console.warn('⚠️ No status data received');
+        setLoading(false);
         return null;
       }
 
@@ -82,6 +82,7 @@ export default function BronzeLevelPage() {
           return null;
         }
         console.error('Status API error:', statusData.error);
+        setLoading(false);
         return null;
       }
 
@@ -91,16 +92,13 @@ export default function BronzeLevelPage() {
       if (statusData.level_complete && !statusData.reward_claimed && !pendingClaimRef.current) {
         pendingClaimRef.current = true;
         await claimReward();
+        return statusData;
       }
 
-      // ✅ If level complete and reward claimed, auto-reset
+      // ✅ If level complete and reward claimed, show complete state
       if (statusData.level_complete && statusData.reward_claimed) {
-        if (!isResetting.current) {
-          isResetting.current = true;
-          setTimeout(() => {
-            window.location.reload();
-          }, 500);
-        }
+        // Already complete - just show the UI
+        return statusData;
       }
 
       return statusData;
@@ -150,11 +148,7 @@ export default function BronzeLevelPage() {
     }
   };
 
-  // ✅ Fallback path: user left the audio page mid ad-gate (closed tab,
-  // refreshed, pressed back). Status now reports ad_required with no
-  // current_audio — the same inline ad-gate shows here so they're never
-  // stuck. Once verified, auto-navigate straight to the next audio instead
-  // of leaving them to tap the "Next Audio" button a second time.
+  // ✅ Fallback path: user left the audio page mid ad-gate
   const handleMilestoneUnlocked = async () => {
     const statusData = await fetchStatus();
     if (
@@ -166,15 +160,13 @@ export default function BronzeLevelPage() {
       const nextIndex = (statusData.completed_audios || 0) + 1;
       window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`;
     }
-    // If level_complete/locked/still ad_required — status is already
-    // updated above and the normal UI below will reflect it correctly.
   };
 
+  // ✅ FIXED: No reload, navigate instead
   const handleCompleteClose = () => {
     setShowComplete(false);
-    setTimeout(() => {
-      window.location.reload();
-    }, 300);
+    // ✅ Navigate to tasks page instead of reload
+    router.push('/tasks');
   };
 
   const isMilestone = status?.current_audio
@@ -219,7 +211,7 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ✅ Level Complete Card */}
+        {/* ✅ Level Complete Card - No auto-reload */}
         {status?.level_complete && status?.reward_claimed && !showComplete && (
           <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-6 text-center">
             <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-green-100 flex items-center justify-center">
@@ -232,16 +224,15 @@ export default function BronzeLevelPage() {
               {status.completed_audios}/{status.total_audios} audios completed
             </p>
             <button
-              onClick={handleCompleteClose}
+              onClick={() => router.push('/tasks')}
               className="mt-4 px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
             >
-              Continue
+              Go to Levels
             </button>
           </div>
         )}
 
-        {/* ✅ Fallback inline ad-gate — only shows if the user ended up here
-            while an ad was still pending (didn't finish it on the audio page) */}
+        {/* ✅ Fallback inline ad-gate */}
         {status?.ad_required && status?.milestone && (
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
             <MilestoneAdGate
@@ -251,7 +242,7 @@ export default function BronzeLevelPage() {
           </div>
         )}
 
-        {/* ✅ Audio Button - Only shown when no ad required and not complete */}
+        {/* ✅ Audio Button */}
         {!status?.locked && !status?.ad_required && !status?.level_complete && status?.current_audio && (
           <button
             onClick={() => {
