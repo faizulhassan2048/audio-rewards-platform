@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2, CheckCircle, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -62,7 +62,6 @@ const safeFetch = async (url: string, options?: RequestInit) => {
 };
 
 export default function AudioPlayerPage() {
-  const router = useRouter();
   const params = useParams();
   const audioId = params.id as string;
 
@@ -84,7 +83,7 @@ export default function AudioPlayerPage() {
   // Next button states
   const [nextAudioData, setNextAudioData] = useState<NextAudioRef | null>(null);
   const [showNextButton, setShowNextButton] = useState(false);
-  const [isNavigating, setIsNavigating] = useState(false); // 👈 NEW — blocks double-click / duplicate navigation
+  const [isNavigating, setIsNavigating] = useState(false); // blocks double-click / duplicate navigation
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
@@ -164,53 +163,38 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // Fetch audio with auto-redirect on refresh
+  // Fetch audio — confirms with the server this audio_id is actually
+  // current before showing anything.
   useEffect(() => {
     const fetchAudio = async () => {
       try {
-        setIsNavigating(false); // 👈 reset once the new audioId has actually landed here
-
         const statusData = await safeFetch('/api/tasks/level/status');
 
         if (!statusData) {
-          router.replace('/tasks/bronze');
+          window.location.href = '/tasks/bronze';
           return;
         }
 
         if (statusData?.level_complete) {
-          router.replace('/tasks/bronze?complete=true');
+          window.location.href = '/tasks/bronze?complete=true';
           return;
         }
 
         if (statusData?.ad_required) {
-          router.replace('/tasks/bronze');
+          window.location.href = '/tasks/bronze';
           return;
         }
 
-        const completedIds = statusData.completed_audio_ids || [];
-        if (completedIds.includes(audioId)) {
-          console.log('⚠️ Audio already completed, redirecting to next...');
-          const nextAudioId = statusData.audio_ids?.[statusData.completed_audios];
-          if (nextAudioId) {
-            const nextIndex = (statusData.completed_audios || 0) + 1;
-            router.replace(
-              `/tasks/audio/${nextAudioId}?index=${nextIndex}&total=${statusData.total_audios || 15}`
-            );
-            return;
-          }
-          router.replace('/tasks/bronze');
-          return;
-        }
-
+        // ✅ If the server's current_audio no longer matches this page's id,
+        // that already covers "already completed" (server moved on) and
+        // "out of order" — one check, one hard redirect to the right place.
         if (statusData?.current_audio?.id !== audioId) {
           if (statusData?.current_audio) {
             const correctIndex = (statusData.completed_audios || 0) + 1;
-            router.replace(
-              `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`
-            );
+            window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`;
             return;
           }
-          router.replace('/tasks/bronze');
+          window.location.href = '/tasks/bronze';
           return;
         }
 
@@ -266,14 +250,14 @@ export default function AudioPlayerPage() {
       } catch (error) {
         console.error('Error fetching audio:', error);
         toast.error('Could not load audio');
-        router.replace('/tasks/bronze');
+        window.location.href = '/tasks/bronze';
       } finally {
         setLoading(false);
       }
     };
 
     fetchAudio();
-  }, [audioId, router]);
+  }, [audioId]);
 
   // Preload audio when URL changes
   useEffect(() => {
@@ -341,7 +325,7 @@ export default function AudioPlayerPage() {
         }),
       });
 
-      // Handle 409 Conflict — server now returns next_audio directly, no extra round-trip needed
+      // Handle 409 Conflict — server returns next_audio directly
       if (res.status === 409) {
         console.log('⚠️ Audio already completed (409 Conflict)');
         const text = await res.text();
@@ -353,7 +337,7 @@ export default function AudioPlayerPage() {
         }
 
         if (data.level_complete) {
-          router.replace('/tasks/bronze?complete=true');
+          window.location.href = '/tasks/bronze?complete=true';
           return;
         }
 
@@ -371,7 +355,6 @@ export default function AudioPlayerPage() {
           return;
         }
 
-        // Fallback only if the 409 response didn't carry next_audio for some reason
         const statusData = await safeFetch('/api/tasks/level/status');
         if (statusData?.current_audio) {
           setNextAudioData({
@@ -385,7 +368,7 @@ export default function AudioPlayerPage() {
           setIsSubmitting(false);
           return;
         }
-        router.replace('/tasks/bronze');
+        window.location.href = '/tasks/bronze';
         return;
       }
 
@@ -405,7 +388,7 @@ export default function AudioPlayerPage() {
           setIsSubmitting(false);
           return;
         }
-        router.replace('/tasks/bronze');
+        window.location.href = '/tasks/bronze';
         return;
       }
 
@@ -468,7 +451,7 @@ export default function AudioPlayerPage() {
       }
 
       setIsSubmitting(false);
-      router.replace('/tasks/bronze');
+      window.location.href = '/tasks/bronze';
 
     } catch (error) {
       console.error('Error completing audio:', error);
@@ -487,7 +470,7 @@ export default function AudioPlayerPage() {
 
     if (levelComplete) {
       toast.success('🎉 Level Complete!');
-      router.replace('/tasks/bronze?complete=true');
+      window.location.href = '/tasks/bronze?complete=true';
       return;
     }
 
@@ -496,10 +479,11 @@ export default function AudioPlayerPage() {
       const nextIndex = (audio?.index || 0) + 1;
       toast.success('🎯 Ad complete! Loading next audio...');
 
+      // ✅ Hard navigation — guarantees a fully fresh page (and a fresh
+      // <audio> element) instead of relying on Next.js client-side routing
+      // to reset everything on just a dynamic [id] change.
       setTimeout(() => {
-        router.replace(
-          `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`
-        );
+        window.location.href = `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`;
       }, 500);
       return;
     }
@@ -510,14 +494,12 @@ export default function AudioPlayerPage() {
         const statusData = await safeFetch('/api/tasks/level/status');
         if (statusData?.current_audio) {
           const nextIndex = (statusData.completed_audios || 0) + 1;
-          router.replace(
-            `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`
-          );
+          window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`;
         } else {
-          router.replace('/tasks/bronze');
+          window.location.href = '/tasks/bronze';
         }
       } catch {
-        router.replace('/tasks/bronze');
+        window.location.href = '/tasks/bronze';
       }
     };
 
@@ -526,31 +508,22 @@ export default function AudioPlayerPage() {
 
   // Handle Next Audio button click
   const handleNextAudio = () => {
-    if (isNavigating) return; // 👈 blocks double-click / duplicate calls
+    if (isNavigating) return; // blocks double-click / duplicate calls
     setIsNavigating(true);
 
-    console.log('🔘 Next button clicked');
-    console.log('📦 nextAudioData:', nextAudioData);
-
     if (!nextAudioData || !nextAudioData.id) {
-      console.warn('⚠️ No next audio data, fetching from status...');
       const fetchAndNavigate = async () => {
         try {
           const statusData = await safeFetch('/api/tasks/level/status');
-          console.log('📊 Status data:', statusData);
           if (statusData?.current_audio) {
             const nextIndex = (statusData.completed_audios || 0) + 1;
-            router.replace(
-              `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`
-            );
+            window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`;
           } else {
-            router.replace('/tasks/bronze');
+            window.location.href = '/tasks/bronze';
           }
         } catch (error) {
           console.error('Fallback navigation error:', error);
-          router.replace('/tasks/bronze');
-        } finally {
-          setIsNavigating(false);
+          window.location.href = '/tasks/bronze';
         }
       };
       fetchAndNavigate();
@@ -560,18 +533,9 @@ export default function AudioPlayerPage() {
     const nextIndex = (audio?.index || 0) + 1;
     const total = audio?.total || 15;
 
-    // Clear states before navigation
-    setShowNextButton(false);
-    setNextAudioData(null);
-    setAudioComplete(false);
-
-    console.log(`🎯 Navigating to: /tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${total}`);
-
-    router.replace(
-      `/tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${total}`
-    );
-    // isNavigating gets reset to false inside fetchAudio() once the new
-    // audioId actually lands and its data starts loading.
+    // ✅ Hard navigation — this is what makes "click Next → fresh page every
+    // single time" actually guaranteed, instead of intermittently working.
+    window.location.href = `/tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${total}`;
   };
 
   // Toggle play/pause
@@ -625,7 +589,10 @@ export default function AudioPlayerPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Loading next audio...</p>
+          <p className="text-gray-500 mb-4">Audio not found</p>
+          <Link href="/tasks/bronze" className="text-[#6C63FF] hover:underline">
+            Back to Level
+          </Link>
         </div>
       </div>
     );

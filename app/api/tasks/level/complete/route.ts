@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+export const revalidate = 0
+
 const LEVEL_NAME = 'bronze'
 const TOTAL_AUDIOS = 15
 
@@ -125,6 +129,14 @@ export async function POST(req: Request) {
     .eq('id', level.id)
 
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+
+  // ✅ Mark this session as completed so it can never be reused for another
+  // claim, and so /api/audio/session issues a fresh session next time this
+  // audio_id is requested instead of resurrecting a finished one.
+  await supabaseAdmin
+    .from('audio_sessions')
+    .update({ status: 'completed' })
+    .eq('session_token', session_token)
 
   let nextAudio = null
   if (!isLevelComplete) {
