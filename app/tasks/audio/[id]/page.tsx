@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2 } from 'lucide-react';
+import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2, CheckCircle, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import TopBanner from '@/components/ads/TopBanner';
@@ -67,6 +67,10 @@ export default function AudioPlayerPage() {
   const [volumeWarning, setVolumeWarning] = useState(false);
   const [pausedBySystem, setPausedBySystem] = useState(false);
   const [milestoneGate, setMilestoneGate] = useState<MilestoneGateState | null>(null);
+  
+  // ✅ NEW: Next button states
+  const [nextAudioData, setNextAudioData] = useState<NextAudioRef | null>(null);
+  const [showNextButton, setShowNextButton] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
@@ -289,7 +293,7 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Handle audio complete with proper navigation
+  // ✅ Handle audio complete - UPDATED with Next button flow
   const handleAudioComplete = async () => {
     if (isSubmitting || !mountRef.current) return;
     setIsSubmitting(true);
@@ -322,8 +326,7 @@ export default function AudioPlayerPage() {
 
       // ✅ Handle "Already completed"
       if (data.alreadyCompleted || data.error === 'Already completed') {
-        toast.info('⏩ Already completed! Moving to next...');
-        router.replace('/tasks/bronze');
+        toast.info('⏩ Already completed!');
         setIsSubmitting(false);
         return;
       }
@@ -331,15 +334,20 @@ export default function AudioPlayerPage() {
       if (!res.ok) {
         if (data.error === 'AD_REQUIRED') {
           toast.info('📢 Complete ad to continue');
-          router.replace('/tasks/bronze');
+          setMilestoneGate({
+            milestone: data.milestone || 5,
+            nextAudio: data.next_audio || null,
+            levelComplete: !!data.level_complete,
+          });
+          setIsSubmitting(false);
           return;
         }
         toast.error(data.error || 'Could not save progress');
-        router.replace('/tasks/bronze');
+        setIsSubmitting(false);
         return;
       }
 
-      // ✅ Milestone hit
+      // ✅ Milestone hit - Show ad gate
       if (data.show_ad) {
         setMilestoneGate({
           milestone: data.milestone,
@@ -350,43 +358,46 @@ export default function AudioPlayerPage() {
         return;
       }
 
+      // ✅ Level complete
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
-        setTimeout(() => {
-          router.replace('/tasks/bronze?complete=true');
-        }, 1500);
+        setIsSubmitting(false);
+        // ✅ Show complete state with Next button
         return;
       }
 
+      // ✅ ✅ ✅ FIX: Don't auto-navigate - just show Next button
       if (data.next_audio) {
-        const nextIndex = (audio?.index || 0) + 1;
+        // ✅ Store next audio in state for manual navigation
+        setNextAudioData({
+          id: data.next_audio.id,
+          title: data.next_audio.title || `Audio ${(audio?.index || 0) + 1}`,
+          audio_url: data.next_audio.audio_url,
+          thumbnail_url: data.next_audio.thumbnail_url || null,
+          duration_seconds: data.next_audio.duration_seconds || 0,
+        });
+        setShowNextButton(true);
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
-        
-        await new Promise(resolve => setTimeout(resolve, 800));
-        router.replace(
-          `/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`
-        );
-      } else {
-        router.replace('/tasks/bronze');
+        setIsSubmitting(false);
+        return;
       }
+
+      // ✅ No next audio - go to bronze
+      setIsSubmitting(false);
+      
     } catch (error) {
       console.error('Error completing audio:', error);
       toast.error('Network error');
       setIsSubmitting(false);
       setAudioComplete(false);
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
-  // ✅ ✅ ✅ UPDATED: Handle milestone ad gate completion
+  // ✅ Handle milestone ad gate completion
   const handleMilestoneUnlocked = () => {
     if (!milestoneGate) return;
 
-    // ✅ Store gate data before clearing
     const { levelComplete, nextAudio } = milestoneGate;
-    
-    // ✅ Clear milestone gate first
     setMilestoneGate(null);
 
     if (levelComplete) {
@@ -399,7 +410,6 @@ export default function AudioPlayerPage() {
       const nextIndex = (audio?.index || 0) + 1;
       toast.success('🎯 Ad complete! Loading next audio...');
       
-      // ✅ Small delay before navigation
       setTimeout(() => {
         router.replace(
           `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`
@@ -426,6 +436,38 @@ export default function AudioPlayerPage() {
     };
 
     fetchAndNavigate();
+  };
+
+  // ✅ Handle Next Audio button click
+  const handleNextAudio = () => {
+    if (!nextAudioData) {
+      // ✅ Fallback: fetch status
+      const fetchAndNavigate = async () => {
+        try {
+          const statusData = await safeFetch('/api/tasks/level/status');
+          if (statusData?.current_audio) {
+            const nextIndex = (statusData.completed_audios || 0) + 1;
+            router.replace(
+              `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`
+            );
+          } else {
+            router.replace('/tasks/bronze');
+          }
+        } catch {
+          router.replace('/tasks/bronze');
+        }
+      };
+      fetchAndNavigate();
+      return;
+    }
+
+    const nextIndex = (audio?.index || 0) + 1;
+    setShowNextButton(false);
+    setNextAudioData(null);
+    
+    router.replace(
+      `/tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${audio?.total || 15}`
+    );
   };
 
   // Toggle play/pause
@@ -619,10 +661,30 @@ export default function AudioPlayerPage() {
             </div>
           )}
 
+          {/* ✅ UPDATED: Audio Complete with Next Button */}
           {audioComplete && !milestoneGate && (
-            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl text-center">
-              <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
-              <p className="text-xs text-green-600">Moving on...</p>
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
+              </div>
+              
+              {showNextButton ? (
+                <button
+                  onClick={handleNextAudio}
+                  className="w-full mt-2 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                  Next Audio
+                </button>
+              ) : isSubmitting ? (
+                <div className="flex items-center justify-center gap-2 mt-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-green-600" />
+                  <p className="text-xs text-green-600">Saving progress...</p>
+                </div>
+              ) : (
+                <p className="text-xs text-green-600">Loading next audio...</p>
+              )}
             </div>
           )}
 
