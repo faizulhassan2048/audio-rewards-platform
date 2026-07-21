@@ -68,41 +68,11 @@ export default function AudioPlayerPage() {
   const [pausedBySystem, setPausedBySystem] = useState(false);
   const [milestoneGate, setMilestoneGate] = useState<MilestoneGateState | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
-  const [nextAudioId, setNextAudioId] = useState<string | null>(null);
-  const [nextAudioIndex, setNextAudioIndex] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
-
-  // ✅ Fetch next audio from status
-  const fetchNextAudio = async () => {
-    try {
-      const statusData = await safeFetch('/api/tasks/level/status');
-      if (statusData?.current_audio) {
-        const nextIndex = (statusData.completed_audios || 0) + 1;
-        setNextAudioId(statusData.current_audio.id);
-        setNextAudioIndex(nextIndex);
-        return statusData.current_audio;
-      }
-      if (statusData?.level_complete) {
-        router.push('/tasks/bronze?complete=true');
-        return null;
-      }
-      return null;
-    } catch (error) {
-      console.error('Error fetching next audio:', error);
-      return null;
-    }
-  };
-
-  // ✅ Navigate to next audio
-  const navigateToNextAudio = (nextId: string, nextIndex: number) => {
-    if (isNavigating) return;
-    setIsNavigating(true);
-    router.push(`/tasks/audio/${nextId}?index=${nextIndex}&total=${audio?.total || 15}`);
-  };
 
   // ✅ Tab visibility detection
   useEffect(() => {
@@ -177,7 +147,7 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // ✅ Fetch audio with auto-redirect
+  // ✅ Fetch audio with auto-redirect on refresh
   useEffect(() => {
     const fetchAudio = async () => {
       try {
@@ -201,6 +171,23 @@ export default function AudioPlayerPage() {
           return;
         }
 
+        // ✅ ✅ ✅ FIX: Check if this audio is already completed
+        const completedIds = statusData.completed_audio_ids || [];
+        if (completedIds.includes(audioId)) {
+          console.log('⚠️ Audio already completed, redirecting to next...');
+          // Get next audio from audio_ids array
+          const nextAudioId = statusData.audio_ids?.[statusData.completed_audios];
+          if (nextAudioId) {
+            const nextIndex = (statusData.completed_audios || 0) + 1;
+            router.replace(
+              `/tasks/audio/${nextAudioId}?index=${nextIndex}&total=${statusData.total_audios || 15}`
+            );
+            return;
+          }
+          router.replace('/tasks/bronze');
+          return;
+        }
+
         // ✅ If wrong audio, redirect
         if (statusData?.current_audio?.id !== audioId) {
           if (statusData?.current_audio) {
@@ -216,20 +203,6 @@ export default function AudioPlayerPage() {
 
         const index = statusData.completed_audios + 1;
         const total = statusData.total_audios || 15;
-
-        // ✅ Check if already completed
-        const completedIds = statusData.completed_audio_ids || [];
-        if (completedIds.includes(audioId)) {
-          toast.info('⏩ Already completed! Moving to next...');
-          const nextAudio = await fetchNextAudio();
-          if (nextAudio) {
-            const nextIndex = (statusData.completed_audios || 0) + 1;
-            setTimeout(() => {
-              navigateToNextAudio(nextAudio.id, nextIndex);
-            }, 500);
-            return;
-          }
-        }
 
         // ✅ Fetch audio data
         const [sessionRes, audioRes] = await Promise.all([
@@ -352,15 +325,8 @@ export default function AudioPlayerPage() {
       // ✅ Handle "Already completed" - auto-navigate
       if (data.alreadyCompleted || data.error === 'Already completed') {
         toast.info('⏩ Already completed! Moving to next...');
-        const nextAudio = await fetchNextAudio();
-        if (nextAudio) {
-          const nextIndex = (audio?.index || 0) + 1;
-          setTimeout(() => {
-            navigateToNextAudio(nextAudio.id, nextIndex);
-          }, 500);
-        } else {
-          router.push('/tasks/bronze');
-        }
+        // ✅ Redirect to bronze page (status will handle next audio)
+        router.push('/tasks/bronze');
         setIsSubmitting(false);
         return;
       }
@@ -393,12 +359,6 @@ export default function AudioPlayerPage() {
           router.push('/tasks/bronze?complete=true');
         }, 1500);
         return;
-      }
-
-      // ✅ Save next audio info
-      if (data.next_audio) {
-        setNextAudioId(data.next_audio.id);
-        setNextAudioIndex((audio?.index || 0) + 1);
       }
 
       // ✅ Normal audio: go to next
