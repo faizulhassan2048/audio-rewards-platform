@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Loader2, CheckCircle, ExternalLink, Clock } from 'lucide-react';
+import { Loader2, CheckCircle, ExternalLink, Clock, AlertCircle } from 'lucide-react';
 
 interface MilestoneAdGateProps {
   milestone: number;
@@ -10,7 +10,14 @@ interface MilestoneAdGateProps {
   onClose?: () => void;
 }
 
-// ✅ Adsterra Direct Link - Opens in new tab
+// ✅ API Response interface
+interface VerifyResponse {
+  success?: boolean;
+  error?: string;
+  message?: string;
+}
+
+// Adsterra Direct Link - Opens in new tab
 const ADSTERRA_DIRECT_LINK_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
 
 export default function MilestoneAdGate({ 
@@ -25,17 +32,17 @@ export default function MilestoneAdGate({
   const [isTimerComplete, setIsTimerComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
-  // ✅ Open ad and start timer
+  // Open ad and start timer
   const handleOpenAd = () => {
-    // Open Direct Link in new tab
     window.open(ADSTERRA_DIRECT_LINK_URL, '_blank', 'noopener');
     setAdOpened(true);
     setSecondsLeft(15);
     setIsTimerComplete(false);
     setError(null);
+    setRetryCount(0);
 
-    // Start timer
     const timer = setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
@@ -48,14 +55,14 @@ export default function MilestoneAdGate({
     }, 1000);
   };
 
-  // ✅ Auto-verify when timer completes
+  // Auto-verify when timer completes
   useEffect(() => {
     if (isTimerComplete && adOpened && !isVerified && !isSubmitting) {
       handleVerifyAd();
     }
   }, [isTimerComplete, adOpened]);
 
-  // ✅ Verify ad completion
+  // ✅ FIXED: Verify ad completion with proper typing
   const handleVerifyAd = async () => {
     if (isSubmitting || isVerified) return;
     setIsSubmitting(true);
@@ -63,17 +70,44 @@ export default function MilestoneAdGate({
     setError(null);
 
     try {
+      console.log('📢 Verifying ad for milestone:', milestone);
+      
       const res = await fetch('/api/tasks/level/ads/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ milestone }),
       });
 
+      // ✅ Read response as text first
       const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
+      console.log('📢 Response text:', text);
+      
+      // ✅ Parse JSON only if there's content
+      let data: VerifyResponse = {};
+      if (text && text.trim()) {
+        try {
+          data = JSON.parse(text) as VerifyResponse;
+        } catch (parseError) {
+          console.error('❌ JSON parse error:', parseError);
+          setError('Invalid response from server. Please try again.');
+          setIsVerifying(false);
+          setIsSubmitting(false);
+          return;
+        }
+      } else {
+        console.warn('⚠️ Empty response from server');
+        setError('Server returned empty response. Please try again.');
+        setIsVerifying(false);
+        setIsSubmitting(false);
+        return;
+      }
 
       if (!res.ok) {
-        setError(data.error || 'Could not verify ad. Please try again.');
+        console.error('❌ API error:', res.status, data);
+        // ✅ Use data.error with proper typing
+        setError(data?.error || `Server error (${res.status}). Please try again.`);
         setIsVerifying(false);
         setIsSubmitting(false);
         return;
@@ -89,12 +123,25 @@ export default function MilestoneAdGate({
         onUnlocked();
       }, 500);
 
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (error) {
+      console.error('❌ Network error:', error);
+      setError('Network error. Please check your connection and try again.');
       setIsVerifying(false);
       setIsSubmitting(false);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // ✅ Retry function
+  const handleRetry = () => {
+    setRetryCount(prev => prev + 1);
+    setError(null);
+    
+    if (adOpened && isTimerComplete) {
+      handleVerifyAd();
+    } else {
+      handleOpenAd();
     }
   };
 
@@ -172,6 +219,25 @@ export default function MilestoneAdGate({
         )}
       </div>
 
+      {/* Error Message */}
+      {error && (
+        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-xs text-red-600">{error}</p>
+              <button
+                onClick={handleRetry}
+                className="mt-1.5 text-xs text-[#6C63FF] font-semibold hover:underline flex items-center gap-1"
+              >
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Continue Button */}
       {isVerified ? (
         <button
@@ -205,19 +271,6 @@ export default function MilestoneAdGate({
           <ExternalLink className="w-4 h-4" />
           Watch Ad to Continue
         </button>
-      )}
-
-      {/* Error Message */}
-      {error && (
-        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-xs text-red-600">{error}</p>
-          <button
-            onClick={handleVerifyAd}
-            className="mt-1 text-xs text-[#6C63FF] font-semibold hover:underline"
-          >
-            Retry
-          </button>
-        </div>
       )}
 
       {/* Footer */}
