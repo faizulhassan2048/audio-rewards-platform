@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation'; // ✅ Added useRouter
 import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -50,6 +50,7 @@ const safeFetch = async (url: string, options?: RequestInit) => {
 
 export default function AudioPlayerPage() {
   const params = useParams();
+  const router = useRouter(); // ✅ Added router
   const audioId = params.id as string;
 
   const [loading, setLoading] = useState(true);
@@ -71,6 +72,7 @@ export default function AudioPlayerPage() {
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
+  const navigatingRef = useRef(false); // ✅ Prevent double navigation
 
   // ✅ Tab visibility detection
   useEffect(() => {
@@ -145,41 +147,34 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // ✅ Fetch audio — confirms with the server first that this audio_id is
-  // actually the current one before showing/playing anything. If the URL
-  // is stale (already completed, wrong order, refreshed mid-flow, ad
-  // pending, level already done) this hard-redirects to the correct place
-  // instead of ever leaving the user on a dead-end screen.
+  // ✅ Fetch audio — UPDATED with router.push instead of window.location
   useEffect(() => {
     const fetchAudio = async () => {
       try {
         const statusData = await safeFetch('/api/tasks/level/status');
 
         if (!statusData) {
-          window.location.href = '/tasks/bronze';
+          router.push('/tasks/bronze');
           return;
         }
 
         if (statusData.level_complete) {
-          window.location.href = '/tasks/bronze?complete=true';
+          router.push('/tasks/bronze?complete=true');
           return;
         }
 
         if (statusData.ad_required) {
-          window.location.href = '/tasks/bronze';
+          router.push('/tasks/bronze');
           return;
         }
 
-        // ✅ This single check already covers "already completed": if this
-        // audio_id was already finished, the server's current_audio has
-        // moved on, so it will no longer match this page's audioId.
         if (!statusData.current_audio || statusData.current_audio.id !== audioId) {
           if (statusData.current_audio?.id) {
             const correctIndex = (statusData.completed_audios || 0) + 1;
             const correctTotal = statusData.total_audios || 15;
-            window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${correctTotal}`;
+            router.push(`/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${correctTotal}`);
           } else {
-            window.location.href = '/tasks/bronze';
+            router.push('/tasks/bronze');
           }
           return;
         }
@@ -226,14 +221,14 @@ export default function AudioPlayerPage() {
       } catch (error) {
         console.error('Error fetching audio:', error);
         toast.error('Could not load audio');
-        window.location.href = '/tasks/bronze';
+        router.push('/tasks/bronze');
       } finally {
         setLoading(false);
       }
     };
 
     fetchAudio();
-  }, [audioId]);
+  }, [audioId, router]);
 
   // Preload audio when URL changes
   useEffect(() => {
@@ -273,9 +268,10 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Handle audio complete
+  // ✅ Handle audio complete - UPDATED with router.push
   const handleAudioComplete = async () => {
-    if (isSubmitting || !mountRef.current) return;
+    if (isSubmitting || !mountRef.current || navigatingRef.current) return;
+    navigatingRef.current = true;
     setIsSubmitting(true);
     setAudioComplete(true);
 
@@ -307,18 +303,15 @@ export default function AudioPlayerPage() {
       if (!res.ok) {
         if (data.error === 'AD_REQUIRED') {
           toast.info('📢 Complete ad to continue');
-          window.location.href = '/tasks/bronze';
+          router.push('/tasks/bronze');
           return;
         }
-        // Covers "Audio out of order or already completed", session
-        // mismatch, etc. — send to a known-good page, never a dead end.
         toast.error(data.error || 'Could not save progress');
-        window.location.href = '/tasks/bronze';
+        router.push('/tasks/bronze');
         return;
       }
 
-      // ✅ Milestone hit — inline ad-gate on this same page, BEFORE treating
-      // the level as complete (matters for audio 15, which is both).
+      // ✅ Milestone hit — inline ad-gate
       if (data.show_ad) {
         setMilestoneGate({
           milestone: data.milestone,
@@ -326,35 +319,37 @@ export default function AudioPlayerPage() {
           levelComplete: !!data.level_complete,
         });
         setIsSubmitting(false);
+        navigatingRef.current = false;
         return;
       }
 
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
         setTimeout(() => {
-          window.location.href = '/tasks/bronze?complete=true';
-        }, 1500);
+          router.push('/tasks/bronze?complete=true');
+        }, 500);
         return;
       }
 
       if (data.next_audio) {
         const nextIndex = (audio?.index || 0) + 1;
         toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
-        // ✅ Hard navigation — this is what prevents the "stuck on the same
-        // completed audio until you manually refresh" bug. A soft
-        // client-side route change on just the [id] segment does not fully
-        // reset the <audio> element and component state.
+        
+        // ✅ FIXED: Use router.push instead of window.location.href
+        // This prevents page reload and "Audio not found" flash
         setTimeout(() => {
-          window.location.href = `/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`;
-        }, 1000);
+          router.push(`/tasks/audio/${data.next_audio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
+          navigatingRef.current = false;
+        }, 500);
       } else {
-        window.location.href = '/tasks/bronze';
+        router.push('/tasks/bronze');
       }
     } catch (error) {
       console.error('Error completing audio:', error);
       toast.error('Network error');
       setIsSubmitting(false);
       setAudioComplete(false);
+      navigatingRef.current = false;
     } finally {
       setIsSubmitting(false);
     }
@@ -362,18 +357,20 @@ export default function AudioPlayerPage() {
 
   // ✅ Called only after the server has verified the ad was actually watched.
   const handleMilestoneUnlocked = () => {
-    if (!milestoneGate) return;
+    if (!milestoneGate || navigatingRef.current) return;
+    navigatingRef.current = true;
+    
     if (milestoneGate.levelComplete) {
       toast.success('🎉 Level Complete!');
-      window.location.href = '/tasks/bronze?complete=true';
+      router.push('/tasks/bronze?complete=true');
       return;
     }
     if (milestoneGate.nextAudio) {
       const nextIndex = (audio?.index || 0) + 1;
-      window.location.href = `/tasks/audio/${milestoneGate.nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`;
+      router.push(`/tasks/audio/${milestoneGate.nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
       return;
     }
-    window.location.href = '/tasks/bronze';
+    router.push('/tasks/bronze');
   };
 
   // Toggle play/pause
