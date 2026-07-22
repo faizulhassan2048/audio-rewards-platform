@@ -9,9 +9,10 @@ interface NativeBannerProps {
   className?: string;
 }
 
-// ✅ Adsterra Native Banner - Dashboard ID 30276726
-const NATIVE_ZONE_ID = '30276726';
-const NATIVE_SCRIPT_URL = 'https://nap5k.com/tag.min.js';
+// ✅ Adsterra Native Banner - Dashboard key d59bba32d33c1da2bf3fbeeacf85538a
+const NATIVE_KEY = 'd59bba32d33c1da2bf3fbeeacf85538a';
+const NATIVE_SCRIPT_URL = `https://pl30377225.effectivecpmnetwork.com/${NATIVE_KEY}/invoke.js`;
+const NATIVE_CONTAINER_ID = `container-${NATIVE_KEY}`;
 
 // ✅ Fallback Ad (if native doesn't load)
 const FALLBACK_AD_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
@@ -70,17 +71,17 @@ export default function NativeBanner({
 
         containerRef.current.innerHTML = '';
 
-        // ✅ Create container for ad
+        // ✅ Create container for ad - ID must EXACTLY match Adsterra's expected container
         const adContainer = document.createElement('div');
-        adContainer.id = `native-ad-${NATIVE_ZONE_ID}`;
+        adContainer.id = NATIVE_CONTAINER_ID;
         adContainer.className = 'w-full min-h-[60px] flex items-center justify-center';
         containerRef.current.appendChild(adContainer);
 
-        // ✅ Create and load script
+        // ✅ Create and load script (matches Adsterra dashboard snippet exactly)
         const script = document.createElement('script');
-        script.dataset.zone = NATIVE_ZONE_ID;
         script.src = NATIVE_SCRIPT_URL;
         script.async = true;
+        script.setAttribute('data-cfasync', 'false');
         script.onload = () => {
           console.log('✅ Native banner loaded successfully');
           setIsLoaded(true);
