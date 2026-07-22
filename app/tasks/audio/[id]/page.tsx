@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2, CheckCircle, ArrowRight } from 'lucide-react';
+import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import TopBanner from '@/components/ads/TopBanner';
 import BottomBanner from '@/components/ads/BottomBanner';
+import NativeBanner from '@/components/ads/NativeBanner';
 import MilestoneAdGate from '@/components/tasks/MilestoneAdGate';
 
 interface AudioData {
@@ -80,18 +81,19 @@ export default function AudioPlayerPage() {
   const [pausedBySystem, setPausedBySystem] = useState(false);
   const [milestoneGate, setMilestoneGate] = useState<MilestoneGateState | null>(null);
 
-  // Next button states
-  const [nextAudioData, setNextAudioData] = useState<NextAudioRef | null>(null);
-  const [showNextButton, setShowNextButton] = useState(false);
+  // ✅ Native banner states
+  const [showNativeBanner, setShowNativeBanner] = useState(false);
+  const [pendingNextAudio, setPendingNextAudio] = useState<NextAudioRef | null>(null);
+  const [pendingNextIndex, setPendingNextIndex] = useState<number>(0);
+  const [pendingTotal, setPendingTotal] = useState<number>(15);
   const [isNavigating, setIsNavigating] = useState(false);
-  
-  // ✅ NEW: Track if navigation is in progress
   const navigationInProgress = useRef(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
+  const hasNavigatedRef = useRef(false);
 
   // Tab visibility detection
   useEffect(() => {
@@ -166,13 +168,13 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // ✅ Fetch audio with proper state management
+  // Fetch audio
   useEffect(() => {
     const fetchAudio = async () => {
       try {
-        // ✅ Reset navigation flag when new audio loads
         setIsNavigating(false);
         navigationInProgress.current = false;
+        hasNavigatedRef.current = false;
 
         const statusData = await safeFetch('/api/tasks/level/status');
 
@@ -317,10 +319,62 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Handle audio complete - FIXED with proper navigation
+  // ✅ Navigate to next audio
+  const navigateToNextAudio = (nextAudio: NextAudioRef, nextIndex: number, total: number) => {
+    if (navigationInProgress.current || hasNavigatedRef.current) {
+      console.log('⚠️ Navigation already in progress, skipping...');
+      return;
+    }
+    
+    navigationInProgress.current = true;
+    hasNavigatedRef.current = true;
+    setIsNavigating(true);
+    
+    console.log(`🎯 Navigating to: /tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`);
+    
+    // ✅ Clear states before navigation
+    setShowNativeBanner(false);
+    setAudioComplete(false);
+    setPendingNextAudio(null);
+    
+    router.replace(
+      `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`
+    );
+  };
+
+  // ✅ Handle native banner complete (5 second timer finished)
+  const handleNativeBannerComplete = () => {
+    console.log('✅ Native banner complete, navigating to next audio...');
+    
+    if (pendingNextAudio && !navigationInProgress.current) {
+      navigateToNextAudio(pendingNextAudio, pendingNextIndex, pendingTotal);
+    } else {
+      console.warn('⚠️ No pending next audio found, fetching from status...');
+      // ✅ Fallback: fetch status and navigate
+      const fetchAndNavigate = async () => {
+        try {
+          const statusData = await safeFetch('/api/tasks/level/status');
+          if (statusData?.current_audio) {
+            const nextIndex = (statusData.completed_audios || 0) + 1;
+            navigateToNextAudio(
+              statusData.current_audio,
+              nextIndex,
+              statusData.total_audios || 15
+            );
+          } else {
+            router.replace('/tasks/bronze');
+          }
+        } catch {
+          router.replace('/tasks/bronze');
+        }
+      };
+      fetchAndNavigate();
+    }
+  };
+
+  // ✅ Handle audio complete
   const handleAudioComplete = async () => {
-    // ✅ Prevent duplicate submissions
-    if (isSubmitting || !mountRef.current || navigationInProgress.current) return;
+    if (isSubmitting || !mountRef.current || navigationInProgress.current || hasNavigatedRef.current) return;
     
     setIsSubmitting(true);
     setAudioComplete(true);
@@ -365,28 +419,23 @@ export default function AudioPlayerPage() {
 
         if (data.next_audio) {
           toast.info('⏩ Audio already completed!');
-          setNextAudioData({
-            id: data.next_audio.id,
-            title: data.next_audio.title || 'Next Audio',
-            audio_url: data.next_audio.audio_url,
-            thumbnail_url: data.next_audio.thumbnail_url || null,
-            duration_seconds: data.next_audio.duration_seconds || 0,
-          });
-          setShowNextButton(true);
+          const nextIndex = (audio?.index || 0) + 1;
+          // ✅ Show native banner instead of direct navigation
+          setPendingNextAudio(data.next_audio);
+          setPendingNextIndex(nextIndex);
+          setPendingTotal(audio?.total || 15);
+          setShowNativeBanner(true);
           setIsSubmitting(false);
           return;
         }
 
         const statusData = await safeFetch('/api/tasks/level/status');
         if (statusData?.current_audio) {
-          setNextAudioData({
-            id: statusData.current_audio.id,
-            title: statusData.current_audio.title || 'Next Audio',
-            audio_url: statusData.current_audio.audio_url,
-            thumbnail_url: statusData.current_audio.thumbnail_url || null,
-            duration_seconds: statusData.current_audio.duration_seconds || 0,
-          });
-          setShowNextButton(true);
+          const nextIndex = (statusData.completed_audios || 0) + 1;
+          setPendingNextAudio(statusData.current_audio);
+          setPendingNextIndex(nextIndex);
+          setPendingTotal(statusData.total_audios || 15);
+          setShowNativeBanner(true);
           setIsSubmitting(false);
           return;
         }
@@ -399,14 +448,11 @@ export default function AudioPlayerPage() {
         console.warn('⚠️ Empty response from server');
         const statusData = await safeFetch('/api/tasks/level/status');
         if (statusData?.current_audio) {
-          setNextAudioData({
-            id: statusData.current_audio.id,
-            title: statusData.current_audio.title || 'Next Audio',
-            audio_url: statusData.current_audio.audio_url,
-            thumbnail_url: statusData.current_audio.thumbnail_url || null,
-            duration_seconds: statusData.current_audio.duration_seconds || 0,
-          });
-          setShowNextButton(true);
+          const nextIndex = (statusData.completed_audios || 0) + 1;
+          setPendingNextAudio(statusData.current_audio);
+          setPendingNextIndex(nextIndex);
+          setPendingTotal(statusData.total_audios || 15);
+          setShowNativeBanner(true);
           setIsSubmitting(false);
           return;
         }
@@ -453,22 +499,33 @@ export default function AudioPlayerPage() {
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
         setIsSubmitting(false);
-        setShowNextButton(false);
+        setAudioComplete(false);
+        // ✅ Show native banner for level complete
+        if (data.next_audio) {
+          const nextIndex = (audio?.index || 0) + 1;
+          setPendingNextAudio(data.next_audio);
+          setPendingNextIndex(nextIndex);
+          setPendingTotal(audio?.total || 15);
+          setShowNativeBanner(true);
+        } else {
+          router.replace('/tasks/bronze?complete=true');
+        }
         return;
       }
 
-      // ✅ FIXED: Handle next audio with proper delay
+      // ✅ Audio complete - Show native banner with 5 second timer
       if (data.next_audio) {
         console.log('📢 Next audio data:', data.next_audio);
-        setNextAudioData({
-          id: data.next_audio.id,
-          title: data.next_audio.title || `Audio ${(audio?.index || 0) + 1}`,
-          audio_url: data.next_audio.audio_url,
-          thumbnail_url: data.next_audio.thumbnail_url || null,
-          duration_seconds: data.next_audio.duration_seconds || 0,
-        });
-        setShowNextButton(true);
-        toast.success(`✅ Audio ${audio?.index || 0}/${audio?.total || 15} complete!`);
+        const nextIndex = (audio?.index || 0) + 1;
+        const total = audio?.total || 15;
+        
+        toast.success(`✅ Audio ${audio?.index || 0}/${total} complete!`);
+        
+        // ✅ Store next audio and show native banner
+        setPendingNextAudio(data.next_audio);
+        setPendingNextIndex(nextIndex);
+        setPendingTotal(total);
+        setShowNativeBanner(true);
         setIsSubmitting(false);
         return;
       }
@@ -500,29 +557,26 @@ export default function AudioPlayerPage() {
     }
 
     if (nextAudio) {
-      navigationInProgress.current = true;
-      setIsNavigating(true);
       const nextIndex = (audio?.index || 0) + 1;
       toast.success('🎯 Ad complete! Loading next audio...');
-
-      setTimeout(() => {
-        router.replace(
-          `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`
-        );
-      }, 500);
+      
+      // ✅ Show native banner instead of direct navigation
+      setPendingNextAudio(nextAudio);
+      setPendingNextIndex(nextIndex);
+      setPendingTotal(audio?.total || 15);
+      setShowNativeBanner(true);
       return;
     }
 
     const fetchAndNavigate = async () => {
       try {
-        navigationInProgress.current = true;
-        setIsNavigating(true);
         const statusData = await safeFetch('/api/tasks/level/status');
         if (statusData?.current_audio) {
           const nextIndex = (statusData.completed_audios || 0) + 1;
-          router.replace(
-            `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`
-          );
+          setPendingNextAudio(statusData.current_audio);
+          setPendingNextIndex(nextIndex);
+          setPendingTotal(statusData.total_audios || 15);
+          setShowNativeBanner(true);
         } else {
           router.replace('/tasks/bronze');
         }
@@ -534,66 +588,9 @@ export default function AudioPlayerPage() {
     fetchAndNavigate();
   };
 
-  // ✅ Handle Next Audio button click - FIXED
-  const handleNextAudio = () => {
-    // ✅ Prevent duplicate navigation
-    if (isNavigating || navigationInProgress.current) return;
-    
-    navigationInProgress.current = true;
-    setIsNavigating(true);
-
-    console.log('🔘 Next button clicked');
-    console.log('📦 nextAudioData:', nextAudioData);
-
-    if (!nextAudioData || !nextAudioData.id) {
-      console.warn('⚠️ No next audio data, fetching from status...');
-      const fetchAndNavigate = async () => {
-        try {
-          const statusData = await safeFetch('/api/tasks/level/status');
-          console.log('📊 Status data:', statusData);
-          if (statusData?.current_audio) {
-            const nextIndex = (statusData.completed_audios || 0) + 1;
-            // ✅ Clear states before navigation
-            setShowNextButton(false);
-            setNextAudioData(null);
-            setAudioComplete(false);
-            router.replace(
-              `/tasks/audio/${statusData.current_audio.id}?index=${nextIndex}&total=${statusData.total_audios || 15}`
-            );
-          } else {
-            router.replace('/tasks/bronze');
-          }
-        } catch (error) {
-          console.error('Fallback navigation error:', error);
-          router.replace('/tasks/bronze');
-        } finally {
-          setIsNavigating(false);
-          navigationInProgress.current = false;
-        }
-      };
-      fetchAndNavigate();
-      return;
-    }
-
-    const nextIndex = (audio?.index || 0) + 1;
-    const total = audio?.total || 15;
-
-    // ✅ Clear states before navigation
-    setShowNextButton(false);
-    setNextAudioData(null);
-    setAudioComplete(false);
-
-    console.log(`🎯 Navigating to: /tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${total}`);
-
-    // ✅ Use replace instead of push to prevent back button issues
-    router.replace(
-      `/tasks/audio/${nextAudioData.id}?index=${nextIndex}&total=${total}`
-    );
-  };
-
   // Toggle play/pause
   const togglePlay = async () => {
-    if (!audioRef.current || audioComplete) return;
+    if (!audioRef.current || audioComplete || showNativeBanner) return;
 
     if (pausedBySystem) {
       setPausedBySystem(false);
@@ -672,170 +669,143 @@ export default function AudioPlayerPage() {
           </div>
         )}
 
-        <div className="flex items-center justify-between text-sm mb-1.5">
-          <span className="text-gray-500">
-            Audio <span className="font-semibold text-gray-700">{audio.index}</span> of <span className="font-semibold text-gray-700">{audio.total}</span>
-          </span>
-          <span className="font-medium text-[#6C63FF]">
-            {Math.round(progress)}%
-          </span>
-        </div>
-
-        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-5">
-          <div
-            className="h-full bg-gradient-to-r from-[#6C63FF] to-purple-500 transition-all duration-300 rounded-full"
-            style={{ width: `${progress}%` }}
+        {/* ✅ Show Native Banner when audio complete */}
+        {showNativeBanner ? (
+          <NativeBanner 
+            onComplete={handleNativeBannerComplete}
+            duration={5}
           />
-        </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between text-sm mb-1.5">
+              <span className="text-gray-500">
+                Audio <span className="font-semibold text-gray-700">{audio.index}</span> of <span className="font-semibold text-gray-700">{audio.total}</span>
+              </span>
+              <span className="font-medium text-[#6C63FF]">
+                {Math.round(progress)}%
+              </span>
+            </div>
 
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5">
-
-          <div className="aspect-video bg-gradient-to-br from-purple-100 to-indigo-100 rounded-xl mb-4 flex items-center justify-center relative overflow-hidden">
-            {audio.thumbnail_url ? (
-              <img
-                src={audio.thumbnail_url}
-                alt={audio.title}
-                className="w-full h-full object-cover"
+            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-5">
+              <div
+                className="h-full bg-gradient-to-r from-[#6C63FF] to-purple-500 transition-all duration-300 rounded-full"
+                style={{ width: `${progress}%` }}
               />
-            ) : (
-              <div className="text-center">
-                <Headphones className="w-14 h-14 text-purple-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-400 font-medium">Audio {audio.index}</p>
-              </div>
-            )}
+            </div>
 
-            <button
-              onClick={togglePlay}
-              disabled={audioComplete}
-              className="absolute inset-0 flex items-center justify-center bg-black/30 hover:bg-black/40 transition-colors group"
-            >
-              <div className="w-16 h-16 rounded-full bg-white/90 shadow-lg flex items-center justify-center group-hover:scale-105 transition-transform">
-                {audioComplete ? (
-                  <Loader2 className="w-8 h-8 text-green-500 animate-spin" />
-                ) : isPlaying ? (
-                  <Pause className="w-8 h-8 text-[#6C63FF]" />
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5">
+
+              <div className="aspect-video bg-gradient-to-br from-purple-100 to-indigo-100 rounded-xl mb-4 flex items-center justify-center relative overflow-hidden">
+                {audio.thumbnail_url ? (
+                  <img
+                    src={audio.thumbnail_url}
+                    alt={audio.title}
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
-                  <Play className="w-8 h-8 text-[#6C63FF] ml-1" />
+                  <div className="text-center">
+                    <Headphones className="w-14 h-14 text-purple-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-400 font-medium">Audio {audio.index}</p>
+                  </div>
+                )}
+
+                <button
+                  onClick={togglePlay}
+                  disabled={audioComplete}
+                  className="absolute inset-0 flex items-center justify-center bg-black/30 hover:bg-black/40 transition-colors group"
+                >
+                  <div className="w-16 h-16 rounded-full bg-white/90 shadow-lg flex items-center justify-center group-hover:scale-105 transition-transform">
+                    {audioComplete ? (
+                      <Loader2 className="w-8 h-8 text-green-500 animate-spin" />
+                    ) : isPlaying ? (
+                      <Pause className="w-8 h-8 text-[#6C63FF]" />
+                    ) : (
+                      <Play className="w-8 h-8 text-[#6C63FF] ml-1" />
+                    )}
+                  </div>
+                </button>
+
+                {audioComplete && (
+                  <div className="absolute bottom-3 left-3 bg-green-500 text-white text-xs px-3 py-1 rounded-full font-medium">
+                    ✅ Complete
+                  </div>
                 )}
               </div>
-            </button>
 
-            {audioComplete && (
-              <div className="absolute bottom-3 left-3 bg-green-500 text-white text-xs px-3 py-1 rounded-full font-medium">
-                ✅ Complete
+              <h2 className="text-lg font-bold text-gray-800 text-center mb-3">
+                {audio.title || `Audio ${audio.index}`}
+              </h2>
+
+              <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
+                <span>{formatTime(currentTime)}</span>
+                <span className="text-gray-300">|</span>
+                <span>{formatTime(duration)}</span>
               </div>
-            )}
-          </div>
 
-          <h2 className="text-lg font-bold text-gray-800 text-center mb-3">
-            {audio.title || `Audio ${audio.index}`}
-          </h2>
-
-          <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
-            <span>{formatTime(currentTime)}</span>
-            <span className="text-gray-300">|</span>
-            <span>{formatTime(duration)}</span>
-          </div>
-
-          <audio
-            ref={audioRef}
-            src={audio.audio_url}
-            preload="auto"
-            className="hidden"
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onTimeUpdate={(e) => {
-              const target = e.target as HTMLAudioElement;
-              setCurrentTime(target.currentTime);
-              const pct = (target.currentTime / target.duration) * 100;
-              setProgress(Math.min(pct, 100));
-            }}
-            onLoadedMetadata={(e) => {
-              const target = e.target as HTMLAudioElement;
-              setDuration(target.duration);
-            }}
-            onEnded={handleAudioComplete}
-            onCanPlay={() => setAudioLoaded(true)}
-          />
-
-          <div className="mt-4 space-y-1.5 text-xs bg-gray-50 rounded-xl p-3.5">
-            <div className="flex items-center gap-2 text-gray-600">
-              <AlertCircle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              <span>Stay on this tab while listening</span>
-            </div>
-            <div className="flex items-center gap-2 text-gray-600">
-              <Volume2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              <span>Keep volume above 15%</span>
-            </div>
-            <div className="flex items-center gap-2 text-gray-600">
-              <AlertCircle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              <span>Do not skip or fast-forward</span>
-            </div>
-          </div>
-
-          {milestoneGate && (
-            <div className="mt-4">
-              <MilestoneAdGate
-                milestone={milestoneGate.milestone}
-                onUnlocked={handleMilestoneUnlocked}
+              <audio
+                ref={audioRef}
+                src={audio.audio_url}
+                preload="auto"
+                className="hidden"
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onTimeUpdate={(e) => {
+                  const target = e.target as HTMLAudioElement;
+                  setCurrentTime(target.currentTime);
+                  const pct = (target.currentTime / target.duration) * 100;
+                  setProgress(Math.min(pct, 100));
+                }}
+                onLoadedMetadata={(e) => {
+                  const target = e.target as HTMLAudioElement;
+                  setDuration(target.duration);
+                }}
+                onEnded={handleAudioComplete}
+                onCanPlay={() => setAudioLoaded(true)}
               />
-            </div>
-          )}
 
-          {/* Audio Complete with Next Button */}
-          {audioComplete && !milestoneGate && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl text-center">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-                <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
+              <div className="mt-4 space-y-1.5 text-xs bg-gray-50 rounded-xl p-3.5">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <AlertCircle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <span>Stay on this tab while listening</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Volume2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <span>Keep volume above 15%</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <AlertCircle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <span>Do not skip or fast-forward</span>
+                </div>
               </div>
 
-              {showNextButton && nextAudioData ? (
+              {milestoneGate && (
+                <div className="mt-4">
+                  <MilestoneAdGate
+                    milestone={milestoneGate.milestone}
+                    onUnlocked={handleMilestoneUnlocked}
+                  />
+                </div>
+              )}
+
+              {!isPlaying && !audioComplete && audioLoaded && (
                 <button
-                  onClick={handleNextAudio}
-                  disabled={isNavigating}
-                  className="w-full mt-2 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                  onClick={togglePlay}
+                  className="mt-4 w-full py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
                 >
-                  {isNavigating ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <ArrowRight className="w-4 h-4" />
-                  )}
-                  {isNavigating ? 'Loading...' : 'Next Audio'}
+                  <Play className="w-4 h-4" />
+                  Play Audio
                 </button>
-              ) : showNextButton && !nextAudioData ? (
-                <div className="flex items-center justify-center gap-2 mt-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-green-600" />
-                  <p className="text-xs text-green-600">Loading next audio...</p>
+              )}
+
+              {!audioLoaded && !audioComplete && (
+                <div className="mt-4 w-full py-3 bg-gray-200 text-gray-500 rounded-xl font-semibold flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading audio...
                 </div>
-              ) : isSubmitting ? (
-                <div className="flex items-center justify-center gap-2 mt-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-green-600" />
-                  <p className="text-xs text-green-600">Saving progress...</p>
-                </div>
-              ) : (
-                <p className="text-xs text-green-600">Preparing next audio...</p>
               )}
             </div>
-          )}
-
-          {!isPlaying && !audioComplete && audioLoaded && (
-            <button
-              onClick={togglePlay}
-              className="mt-4 w-full py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors flex items-center justify-center gap-2"
-            >
-              <Play className="w-4 h-4" />
-              Play Audio
-            </button>
-          )}
-
-          {!audioLoaded && !audioComplete && (
-            <div className="mt-4 w-full py-3 bg-gray-200 text-gray-500 rounded-xl font-semibold flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Loading audio...
-            </div>
-          )}
-        </div>
+          </>
+        )}
 
         <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none">
           <div className="max-w-md mx-auto px-4 pointer-events-auto">
