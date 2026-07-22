@@ -34,11 +34,37 @@ export default function NativeBanner({
     if (scriptLoadedRef.current) return;
     scriptLoadedRef.current = true;
 
+    const showFallbackAd = () => {
+      if (!containerRef.current) return;
+      containerRef.current.innerHTML = '';
+
+      const fallbackDiv = document.createElement('div');
+      fallbackDiv.className = 'w-full p-2 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200';
+      fallbackDiv.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">📢</span>
+            <div>
+              <p class="text-xs font-semibold text-gray-700">Sponsored</p>
+              <p class="text-[10px] text-gray-500">Complete ad to continue</p>
+            </div>
+          </div>
+          <a href="${FALLBACK_AD_URL}" target="_blank" 
+             class="px-3 py-1 bg-[#6C63FF] text-white rounded-lg text-xs font-semibold hover:bg-[#5a52e0] transition-colors">
+            Watch Ad
+          </a>
+        </div>
+      `;
+      containerRef.current.appendChild(fallbackDiv);
+      setIsLoaded(true);
+    };
+
     const loadNativeAd = () => {
       try {
         if (!containerRef.current) {
-          console.warn('⚠️ Native banner container not found');
-          setIsLoaded(true);
+          // Container should always be mounted now, but guard just in case
+          console.warn('⚠️ Native banner container not found, retrying...');
+          setTimeout(loadNativeAd, 200);
           return;
         }
 
@@ -63,23 +89,10 @@ export default function NativeBanner({
           console.error('❌ Native banner failed to load, using fallback');
           setAdError(true);
           setUsingFallback(true);
-          // ✅ Show fallback ad
           showFallbackAd();
         };
 
         containerRef.current.appendChild(script);
-
-        // ✅ Fallback: if script doesn't load in 5 seconds
-        const fallbackTimer = setTimeout(() => {
-          if (!isLoaded) {
-            console.warn('⚠️ Native banner loading timeout, using fallback');
-            setAdError(true);
-            setUsingFallback(true);
-            showFallbackAd();
-          }
-        }, 5000);
-
-        return () => clearTimeout(fallbackTimer);
 
       } catch (error) {
         console.error('❌ Native banner error:', error);
@@ -89,34 +102,25 @@ export default function NativeBanner({
       }
     };
 
-    // ✅ Show fallback ad
-    const showFallbackAd = () => {
-      if (!containerRef.current) return;
-      containerRef.current.innerHTML = '';
-      
-      const fallbackDiv = document.createElement('div');
-      fallbackDiv.className = 'w-full p-2 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200';
-      fallbackDiv.innerHTML = `
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span class="text-xl">📢</span>
-            <div>
-              <p class="text-xs font-semibold text-gray-700">Sponsored</p>
-              <p class="text-[10px] text-gray-500">Complete ad to continue</p>
-            </div>
-          </div>
-          <a href="${FALLBACK_AD_URL}" target="_blank" 
-             class="px-3 py-1 bg-[#6C63FF] text-white rounded-lg text-xs font-semibold hover:bg-[#5a52e0] transition-colors">
-            Watch Ad
-          </a>
-        </div>
-      `;
-      containerRef.current.appendChild(fallbackDiv);
-      setIsLoaded(true);
-    };
+    const startTimer = setTimeout(loadNativeAd, 500);
 
-    const timer = setTimeout(loadNativeAd, 500);
-    return () => clearTimeout(timer);
+    // ✅ Fallback: if script doesn't load within 5s of starting the load
+    const fallbackTimer = setTimeout(() => {
+      setIsLoaded((current) => {
+        if (!current) {
+          console.warn('⚠️ Native banner loading timeout, using fallback');
+          setAdError(true);
+          setUsingFallback(true);
+          showFallbackAd();
+        }
+        return current;
+      });
+    }, 5500);
+
+    return () => {
+      clearTimeout(startTimer);
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   // ✅ Timer for auto-navigation
@@ -149,20 +153,23 @@ export default function NativeBanner({
     <div 
       className={`w-full bg-white rounded-2xl shadow-lg border border-gray-100 p-4 ${className}`}
     >
-      {!isLoaded ? (
-        <div className="flex items-center justify-center gap-2 min-h-[60px]">
-          <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-400 border-t-transparent" />
-          <span className="text-sm text-gray-400">Loading ad...</span>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {/* ✅ Native Ad Container */}
+      <div className="space-y-3">
+        {/* ✅ Native Ad Container - ALWAYS mounted so the script can find it */}
+        <div className="relative w-full min-h-[60px]">
+          {!isLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center gap-2">
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-400 border-t-transparent" />
+              <span className="text-sm text-gray-400">Loading ad...</span>
+            </div>
+          )}
           <div 
             ref={containerRef} 
             className="w-full min-h-[60px] flex items-center justify-center"
           />
-          
-          {/* ✅ Timer */}
+        </div>
+
+        {/* ✅ Timer */}
+        {isLoaded && (
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <p className="text-xs text-gray-400">
               {usingFallback ? '📢 Click ad to continue...' : `📢 Continuing in ${secondsLeft}s...`}
@@ -174,8 +181,8 @@ export default function NativeBanner({
               />
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
