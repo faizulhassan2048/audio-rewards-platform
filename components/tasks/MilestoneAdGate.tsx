@@ -16,7 +16,7 @@ interface VerifyResponse {
   message?: string;
 }
 
-// Adsterra Direct Link - Opens in new tab
+// ✅ Adsterra Direct Link - Same tab mein open ho
 const ADSTERRA_DIRECT_LINK_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
 
 export default function MilestoneAdGate({ 
@@ -33,7 +33,7 @@ export default function MilestoneAdGate({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  // ✅ Start ad session - Call this BEFORE opening the ad
+  // ✅ Start ad session
   const startAdSession = async () => {
     try {
       const res = await fetch('/api/tasks/level/ads/start', {
@@ -58,7 +58,7 @@ export default function MilestoneAdGate({
     return null;
   };
 
-  // Open ad and start timer
+  // ✅ Open ad in SAME TAB (not new tab)
   const handleOpenAd = async () => {
     setError(null);
     setRetryCount(0);
@@ -73,8 +73,8 @@ export default function MilestoneAdGate({
       return;
     }
     
-    // ✅ Open Direct Link in new tab
-    window.open(ADSTERRA_DIRECT_LINK_URL, '_blank', 'noopener');
+    // ✅ OPEN IN SAME TAB - Use window.location.href instead of window.open
+    window.location.href = ADSTERRA_DIRECT_LINK_URL;
     setAdOpened(true);
     setSecondsLeft(15);
     setIsTimerComplete(false);
@@ -98,7 +98,7 @@ export default function MilestoneAdGate({
     }
   }, [isTimerComplete, adOpened]);
 
-  // ✅ FIXED: Verify ad completion
+  // ✅ Verify ad completion
   const handleVerifyAd = async () => {
     if (isSubmitting || isVerified) return;
     setIsSubmitting(true);
@@ -116,11 +116,9 @@ export default function MilestoneAdGate({
         body: JSON.stringify({ milestone }),
       });
 
-      // ✅ Read response as text
       const text = await res.text();
       console.log('📢 Response text:', text);
       
-      // ✅ Parse JSON only if there's content
       let data: VerifyResponse = {};
       if (text && text.trim()) {
         try {
@@ -140,14 +138,11 @@ export default function MilestoneAdGate({
         return;
       }
 
-      // ✅ Handle 400 error - "Ad was not started"
       if (res.status === 400) {
         console.error('❌ 400 Error:', data);
         setError(data?.error || 'Ad was not started. Please watch the ad first and try again.');
         setIsVerifying(false);
         setIsSubmitting(false);
-        
-        // ✅ Reset ad state so user can watch again
         setAdOpened(false);
         setSecondsLeft(15);
         setIsTimerComplete(false);
@@ -162,7 +157,6 @@ export default function MilestoneAdGate({
         return;
       }
 
-      // ✅ Success
       setIsVerified(true);
       setIsVerifying(false);
       toast.success('✅ Ad verified! Continuing...');
@@ -187,10 +181,8 @@ export default function MilestoneAdGate({
     setError(null);
     
     if (adOpened && isTimerComplete) {
-      // Try verifying again
       handleVerifyAd();
     } else {
-      // Start fresh
       setAdOpened(false);
       setSecondsLeft(15);
       setIsTimerComplete(false);
