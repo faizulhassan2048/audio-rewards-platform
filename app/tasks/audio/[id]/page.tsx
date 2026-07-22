@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { ArrowLeft, Headphones, Volume2, AlertCircle, Play, Pause, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -35,7 +35,6 @@ interface MilestoneGateState {
 }
 
 interface CompleteResponse {
-  alreadyCompleted?: boolean;
   error?: string;
   show_ad?: boolean;
   milestone?: number;
@@ -45,7 +44,6 @@ interface CompleteResponse {
   total_audios?: number;
 }
 
-// ✅ FIX: always bypass browser/Next.js fetch cache for internal API calls
 const safeFetch = async (url: string, options?: RequestInit) => {
   try {
     const res = await fetch(url, { cache: 'no-store', ...options });
@@ -63,7 +61,6 @@ const safeFetch = async (url: string, options?: RequestInit) => {
 };
 
 export default function AudioPlayerPage() {
-  const router = useRouter();
   const params = useParams();
   const audioId = params.id as string;
 
@@ -82,19 +79,19 @@ export default function AudioPlayerPage() {
   const [pausedBySystem, setPausedBySystem] = useState(false);
   const [milestoneGate, setMilestoneGate] = useState<MilestoneGateState | null>(null);
 
-  // ✅ Native banner states
+  // Native banner (shown after EVERY audio completion, not just milestones)
   const [showNativeBanner, setShowNativeBanner] = useState(false);
   const [pendingNextAudio, setPendingNextAudio] = useState<NextAudioRef | null>(null);
   const [pendingNextIndex, setPendingNextIndex] = useState<number>(0);
   const [pendingTotal, setPendingTotal] = useState<number>(15);
-  const [isNavigating, setIsNavigating] = useState(false);
-  const navigationInProgress = useRef(false);
+  const [pendingLevelComplete, setPendingLevelComplete] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
   const hasNavigatedRef = useRef(false);
+  const bannerSafetyTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Tab visibility detection
   useEffect(() => {
@@ -169,65 +166,36 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // Fetch audio
+  // Fetch audio — confirms this audio_id is actually current, then loads it.
   useEffect(() => {
     const fetchAudio = async () => {
       try {
-        setIsNavigating(false);
-        navigationInProgress.current = false;
-        hasNavigatedRef.current = false;
-
-        // ✅ Reset per-audio playback state on every navigation
-        setIsPlaying(false);
-        setProgress(0);
-        setCurrentTime(0);
-        setDuration(0);
-        setAudioComplete(false);
-        setAudioLoaded(false);
-        setShowNativeBanner(false);
-        setMilestoneGate(null);
-
         const statusData = await safeFetch('/api/tasks/level/status');
 
         if (!statusData) {
-          router.replace('/tasks/bronze');
+          window.location.href = '/tasks/bronze';
           return;
         }
 
-        if (statusData?.level_complete) {
-          router.replace('/tasks/bronze?complete=true');
+        if (statusData.level_complete) {
+          window.location.href = '/tasks/bronze?complete=true';
           return;
         }
 
-        if (statusData?.ad_required) {
-          router.replace('/tasks/bronze');
+        if (statusData.ad_required) {
+          window.location.href = '/tasks/bronze';
           return;
         }
 
-        const completedIds = statusData.completed_audio_ids || [];
-        if (completedIds.includes(audioId)) {
-          console.log('⚠️ Audio already completed, redirecting to next...');
-          const nextAudioId = statusData.audio_ids?.[statusData.completed_audios];
-          if (nextAudioId) {
-            const nextIndex = (statusData.completed_audios || 0) + 1;
-            router.replace(
-              `/tasks/audio/${nextAudioId}?index=${nextIndex}&total=${statusData.total_audios || 15}`
-            );
-            return;
-          }
-          router.replace('/tasks/bronze');
-          return;
-        }
-
-        if (statusData?.current_audio?.id !== audioId) {
-          if (statusData?.current_audio) {
+        // ✅ Covers "already completed" and "out of order" in one check —
+        // if this audio_id isn't the server's current_audio, redirect hard.
+        if (statusData.current_audio?.id !== audioId) {
+          if (statusData.current_audio) {
             const correctIndex = (statusData.completed_audios || 0) + 1;
-            router.replace(
-              `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`
-            );
+            window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`;
             return;
           }
-          router.replace('/tasks/bronze');
+          window.location.href = '/tasks/bronze';
           return;
         }
 
@@ -284,14 +252,14 @@ export default function AudioPlayerPage() {
       } catch (error) {
         console.error('Error fetching audio:', error);
         toast.error('Could not load audio');
-        router.replace('/tasks/bronze');
+        window.location.href = '/tasks/bronze';
       } finally {
         setLoading(false);
       }
     };
 
     fetchAudio();
-  }, [audioId, router]);
+  }, [audioId]);
 
   // Preload audio when URL changes
   useEffect(() => {
@@ -332,63 +300,78 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Navigate to next audio
-  const navigateToNextAudio = (nextAudio: NextAudioRef, nextIndex: number, total: number) => {
-    if (navigationInProgress.current || hasNavigatedRef.current) {
-      console.log('⚠️ Navigation already in progress, skipping...');
+  // ✅ Called only after the server has verified the milestone ad was
+  // actually watched (via MilestoneAdGate -> /ads/verify).
+  const handleMilestoneUnlocked = () => {
+    if (!milestoneGate || hasNavigatedRef.current) return;
+    hasNavigatedRef.current = true;
+
+    const { levelComplete, nextAudio } = milestoneGate;
+    setMilestoneGate(null);
+
+    if (levelComplete || !nextAudio) {
+      toast.success('🎉 Level Complete!');
+      window.location.href = '/tasks/bronze?complete=true';
       return;
     }
-    
-    navigationInProgress.current = true;
+
+    const nextIndex = (audio?.index || 0) + 1;
+    window.location.href = `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`;
+  };
+
+  // ✅ Single place that actually navigates onward — hard navigation
+  // (window.location, not router.push/replace) guarantees a fully fresh
+  // page and a fresh <audio> element every single time. This is what
+  // fixes "next audio doesn't always load / sometimes shows the same one".
+  const goToNext = (
+    nextAudio: NextAudioRef | null,
+    nextIndex: number,
+    total: number,
+    levelComplete: boolean
+  ) => {
+    if (hasNavigatedRef.current) return;
     hasNavigatedRef.current = true;
-    setIsNavigating(true);
-    
-    console.log(`🎯 Navigating to: /tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`);
-    
-    // ✅ Clear states before navigation
-    setShowNativeBanner(false);
-    setAudioComplete(false);
-    setPendingNextAudio(null);
-    
-    router.replace(
-      `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`
-    );
-  };
-
-  // ✅ Handle native banner complete (5 second timer finished)
-  const handleNativeBannerComplete = () => {
-    console.log('✅ Native banner complete, navigating to next audio...');
-    
-    if (pendingNextAudio && !navigationInProgress.current) {
-      navigateToNextAudio(pendingNextAudio, pendingNextIndex, pendingTotal);
-    } else {
-      console.warn('⚠️ No pending next audio found, fetching from status...');
-      // ✅ Fallback: fetch status and navigate
-      const fetchAndNavigate = async () => {
-        try {
-          const statusData = await safeFetch('/api/tasks/level/status');
-          if (statusData?.current_audio) {
-            const nextIndex = (statusData.completed_audios || 0) + 1;
-            navigateToNextAudio(
-              statusData.current_audio,
-              nextIndex,
-              statusData.total_audios || 15
-            );
-          } else {
-            router.replace('/tasks/bronze');
-          }
-        } catch {
-          router.replace('/tasks/bronze');
-        }
-      };
-      fetchAndNavigate();
+    if (bannerSafetyTimer.current) {
+      clearTimeout(bannerSafetyTimer.current);
+      bannerSafetyTimer.current = null;
     }
+
+    if (levelComplete || !nextAudio) {
+      window.location.href = '/tasks/bronze?complete=true';
+      return;
+    }
+
+    window.location.href = `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`;
   };
 
-  // ✅ Handle audio complete
+  // ✅ Safety net: the moment the native banner shows, arm a timeout that
+  // navigates forward on its own even if NativeBanner's own onComplete
+  // never fires for any reason (e.g. ad script failure). This is what
+  // guarantees the user is never stuck on the banner screen.
+  useEffect(() => {
+    if (showNativeBanner) {
+      hasNavigatedRef.current = false;
+      bannerSafetyTimer.current = setTimeout(() => {
+        goToNext(pendingNextAudio, pendingNextIndex, pendingTotal, pendingLevelComplete);
+      }, 6000);
+    }
+    return () => {
+      if (bannerSafetyTimer.current) {
+        clearTimeout(bannerSafetyTimer.current);
+        bannerSafetyTimer.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showNativeBanner]);
+
+  const handleNativeBannerComplete = () => {
+    goToNext(pendingNextAudio, pendingNextIndex, pendingTotal, pendingLevelComplete);
+  };
+
+  // Handle audio complete
   const handleAudioComplete = async () => {
-    if (isSubmitting || !mountRef.current || navigationInProgress.current || hasNavigatedRef.current) return;
-    
+    if (isSubmitting || !mountRef.current || hasNavigatedRef.current) return;
+
     setIsSubmitting(true);
     setAudioComplete(true);
 
@@ -416,75 +399,18 @@ export default function AudioPlayerPage() {
         }),
       });
 
-      // Handle 409 Conflict
-      if (res.status === 409) {
-        console.log('⚠️ Audio already completed (409 Conflict)');
-        const text = await res.text();
-        let data: CompleteResponse = {};
-        try {
-          data = text ? (JSON.parse(text) as CompleteResponse) : {};
-        } catch {
-          console.error('JSON parse error on 409 response');
-        }
-
-        if (data.level_complete) {
-          router.replace('/tasks/bronze?complete=true');
-          return;
-        }
-
-        if (data.next_audio) {
-          toast.info('⏩ Audio already completed!');
-          const nextIndex = (audio?.index || 0) + 1;
-          // ✅ Show native banner instead of direct navigation
-          setPendingNextAudio(data.next_audio);
-          setPendingNextIndex(nextIndex);
-          setPendingTotal(audio?.total || 15);
-          setShowNativeBanner(true);
-          setIsSubmitting(false);
-          return;
-        }
-
-        const statusData = await safeFetch('/api/tasks/level/status');
-        if (statusData?.current_audio) {
-          const nextIndex = (statusData.completed_audios || 0) + 1;
-          setPendingNextAudio(statusData.current_audio);
-          setPendingNextIndex(nextIndex);
-          setPendingTotal(statusData.total_audios || 15);
-          setShowNativeBanner(true);
-          setIsSubmitting(false);
-          return;
-        }
-        router.replace('/tasks/bronze');
-        return;
-      }
-
       const text = await res.text();
-      if (!text) {
-        console.warn('⚠️ Empty response from server');
-        const statusData = await safeFetch('/api/tasks/level/status');
-        if (statusData?.current_audio) {
-          const nextIndex = (statusData.completed_audios || 0) + 1;
-          setPendingNextAudio(statusData.current_audio);
-          setPendingNextIndex(nextIndex);
-          setPendingTotal(statusData.total_audios || 15);
-          setShowNativeBanner(true);
-          setIsSubmitting(false);
-          return;
-        }
-        router.replace('/tasks/bronze');
-        return;
-      }
-
       let data: CompleteResponse = {};
       try {
-        data = JSON.parse(text) as CompleteResponse;
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        toast.error('Invalid response from server');
-        setIsSubmitting(false);
-        return;
+        data = text ? (JSON.parse(text) as CompleteResponse) : {};
+      } catch {
+        console.error('JSON parse error on complete response');
       }
 
+      // Any rejection (409 out-of-order/already-completed, ad required,
+      // session mismatch, etc.) — re-check status and hard-redirect to
+      // wherever the server actually says we should be, never leave the
+      // user on a dead screen.
       if (!res.ok) {
         if (data.error === 'AD_REQUIRED') {
           toast.info('📢 Complete ad to continue');
@@ -496,8 +422,15 @@ export default function AudioPlayerPage() {
           setIsSubmitting(false);
           return;
         }
+
         toast.error(data.error || 'Could not save progress');
-        setIsSubmitting(false);
+        const statusData = await safeFetch('/api/tasks/level/status');
+        if (statusData?.current_audio && statusData.current_audio.id !== audioId) {
+          const correctIndex = (statusData.completed_audios || 0) + 1;
+          window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`;
+        } else {
+          window.location.href = '/tasks/bronze';
+        }
         return;
       }
 
@@ -511,96 +444,42 @@ export default function AudioPlayerPage() {
         return;
       }
 
+      const nextIndex = (audio?.index || 0) + 1;
+      const total = audio?.total || 15;
+
       if (data.level_complete) {
         toast.success('🎉 Level Complete!');
-        setIsSubmitting(false);
-        setAudioComplete(false);
-        // ✅ Show native banner for level complete
-        if (data.next_audio) {
-          const nextIndex = (audio?.index || 0) + 1;
-          setPendingNextAudio(data.next_audio);
-          setPendingNextIndex(nextIndex);
-          setPendingTotal(audio?.total || 15);
-          setShowNativeBanner(true);
-        } else {
-          router.replace('/tasks/bronze?complete=true');
-        }
-        return;
-      }
-
-      // ✅ Audio complete - Show native banner with 5 second timer
-      if (data.next_audio) {
-        console.log('📢 Next audio data:', data.next_audio);
-        const nextIndex = (audio?.index || 0) + 1;
-        const total = audio?.total || 15;
-        
-        toast.success(`✅ Audio ${audio?.index || 0}/${total} complete!`);
-        
-        // ✅ Store next audio and show native banner
-        setPendingNextAudio(data.next_audio);
+        setPendingNextAudio(data.next_audio || null);
         setPendingNextIndex(nextIndex);
         setPendingTotal(total);
+        setPendingLevelComplete(true);
         setShowNativeBanner(true);
         setIsSubmitting(false);
         return;
       }
 
-      setIsSubmitting(false);
-      router.replace('/tasks/bronze');
+      // ✅ Every audio (not just milestones) shows the native banner here.
+      // Milestones additionally get MilestoneAdGate (smartlink) — that's
+      // handled separately above via data.show_ad, before this point.
+      if (data.next_audio) {
+        toast.success(`✅ Audio ${audio?.index || 0}/${total} complete!`);
+        setPendingNextAudio(data.next_audio);
+        setPendingNextIndex(nextIndex);
+        setPendingTotal(total);
+        setPendingLevelComplete(false);
+        setShowNativeBanner(true);
+        setIsSubmitting(false);
+        return;
+      }
+
+      window.location.href = '/tasks/bronze';
 
     } catch (error) {
       console.error('Error completing audio:', error);
       toast.error('Network error');
       setIsSubmitting(false);
       setAudioComplete(false);
-    } finally {
-      setIsSubmitting(false);
     }
-  };
-
-  // Handle milestone ad gate completion
-  const handleMilestoneUnlocked = () => {
-    if (!milestoneGate || isNavigating || navigationInProgress.current) return;
-
-    const { levelComplete, nextAudio } = milestoneGate;
-    setMilestoneGate(null);
-
-    if (levelComplete) {
-      toast.success('🎉 Level Complete!');
-      router.replace('/tasks/bronze?complete=true');
-      return;
-    }
-
-    if (nextAudio) {
-      const nextIndex = (audio?.index || 0) + 1;
-      toast.success('🎯 Ad complete! Loading next audio...');
-      
-      // ✅ Show native banner instead of direct navigation
-      setPendingNextAudio(nextAudio);
-      setPendingNextIndex(nextIndex);
-      setPendingTotal(audio?.total || 15);
-      setShowNativeBanner(true);
-      return;
-    }
-
-    const fetchAndNavigate = async () => {
-      try {
-        const statusData = await safeFetch('/api/tasks/level/status');
-        if (statusData?.current_audio) {
-          const nextIndex = (statusData.completed_audios || 0) + 1;
-          setPendingNextAudio(statusData.current_audio);
-          setPendingNextIndex(nextIndex);
-          setPendingTotal(statusData.total_audios || 15);
-          setShowNativeBanner(true);
-        } else {
-          router.replace('/tasks/bronze');
-        }
-      } catch {
-        router.replace('/tasks/bronze');
-      }
-    };
-
-    fetchAndNavigate();
   };
 
   // Toggle play/pause
@@ -654,7 +533,10 @@ export default function AudioPlayerPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Loading next audio...</p>
+          <p className="text-gray-500 mb-4">Audio not found</p>
+          <Link href="/tasks/bronze" className="text-[#6C63FF] hover:underline">
+            Back to Level
+          </Link>
         </div>
       </div>
     );
@@ -684,15 +566,28 @@ export default function AudioPlayerPage() {
           </div>
         )}
 
-        {/* ✅ Show Native Banner when audio complete */}
         {showNativeBanner ? (
-          <NativeBanner 
-            onComplete={handleNativeBannerComplete}
-            duration={5}
-          />
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5 text-center">
+            <div className="mb-3">
+              <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
+              <p className="text-xs text-gray-500 mt-1">Loading next audio...</p>
+            </div>
+            <NativeBanner
+              onComplete={handleNativeBannerComplete}
+              duration={5}
+            />
+            {/* ✅ Manual continue button — works even if the banner's own
+                timer/callback doesn't fire, so nobody is ever stuck here. */}
+            <button
+              onClick={handleNativeBannerComplete}
+              className="w-full mt-4 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors"
+            >
+              Continue
+            </button>
+          </div>
         ) : (
           <>
-            <div className="flex items-center justify-between text-sm mb-1.5">
+        <div className="flex items-center justify-between text-sm mb-1.5">
               <span className="text-gray-500">
                 Audio <span className="font-semibold text-gray-700">{audio.index}</span> of <span className="font-semibold text-gray-700">{audio.total}</span>
               </span>

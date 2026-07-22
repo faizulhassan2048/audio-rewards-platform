@@ -37,10 +37,10 @@ export async function POST(req: Request) {
     }
 
     // ✅ Reuse an existing, not-yet-completed session for this user+audio
-    // instead of always inserting a new one. Without this, every page
-    // refresh resets created_at, which resets the real-playback timer that
-    // /api/tasks/level/complete relies on — causing the "audio restarts /
-    // won't verify" bug.
+    // instead of always creating a new one. Without this, every page
+    // refresh created a brand new session with a fresh created_at, which
+    // reset the real-playback timer in /api/tasks/level/complete back to
+    // zero — making the audio look like it "restarted from the beginning".
     const { data: existingSession } = await supabaseAdmin
       .from('audio_sessions')
       .select('*')

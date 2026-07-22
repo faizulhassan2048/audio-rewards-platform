@@ -130,7 +130,9 @@ export async function POST(req: Request) {
 
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
 
-  // ✅ Mark this session as completed
+  // ✅ Mark this session as completed so /api/audio/session never reuses it
+  // again for a future request of the same audio_id (it will insert a
+  // fresh one instead), and so it can never be replayed to claim twice.
   await supabaseAdmin
     .from('audio_sessions')
     .update({ status: 'completed' })
