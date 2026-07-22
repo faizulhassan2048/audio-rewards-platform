@@ -45,9 +45,10 @@ interface CompleteResponse {
   total_audios?: number;
 }
 
+// ✅ FIX: always bypass browser/Next.js fetch cache for internal API calls
 const safeFetch = async (url: string, options?: RequestInit) => {
   try {
-    const res = await fetch(url, options);
+    const res = await fetch(url, { cache: 'no-store', ...options });
     const text = await res.text();
     if (!text) return null;
     try {
@@ -176,6 +177,16 @@ export default function AudioPlayerPage() {
         navigationInProgress.current = false;
         hasNavigatedRef.current = false;
 
+        // ✅ Reset per-audio playback state on every navigation
+        setIsPlaying(false);
+        setProgress(0);
+        setCurrentTime(0);
+        setDuration(0);
+        setAudioComplete(false);
+        setAudioLoaded(false);
+        setShowNativeBanner(false);
+        setMilestoneGate(null);
+
         const statusData = await safeFetch('/api/tasks/level/status');
 
         if (!statusData) {
@@ -226,10 +237,11 @@ export default function AudioPlayerPage() {
         const [sessionRes, audioRes] = await Promise.all([
           fetch('/api/audio/session', {
             method: 'POST',
+            cache: 'no-store',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ audioId }),
           }),
-          fetch(`/api/tasks/audio/${audioId}`),
+          fetch(`/api/tasks/audio/${audioId}`, { cache: 'no-store' }),
         ]);
 
         let token = null;
@@ -296,6 +308,7 @@ export default function AudioPlayerPage() {
     try {
       await fetch('/api/audio/heartbeat', {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionToken,
@@ -382,6 +395,7 @@ export default function AudioPlayerPage() {
     if (sessionToken) {
       await fetch('/api/audio/heartbeat', {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionToken,
@@ -394,6 +408,7 @@ export default function AudioPlayerPage() {
     try {
       const res = await fetch('/api/tasks/level/complete', {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           audio_id: audioId,

@@ -87,7 +87,7 @@ export async function GET() {
         level_name: level.level_name,
         completed_audios: level.completed_audios,
         total_audios: level.total_audios,
-        current_audio: null, // ✅ CRITICAL: Block access to next audio
+        current_audio: null,
       })
     }
 

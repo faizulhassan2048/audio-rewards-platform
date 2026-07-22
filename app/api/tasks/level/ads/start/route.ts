@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+export const revalidate = 0
+
 const LEVEL_NAME = 'bronze'
 
 export async function POST() {
@@ -38,6 +42,6 @@ export async function POST() {
   return NextResponse.json({ 
     success: true, 
     milestone: level.pending_ad_milestone,
-    alreadyStarted: !!level.ad_session_started_at // ✅ Tell frontend if already started
+    alreadyStarted: !!level.ad_session_started_at
   })
 }

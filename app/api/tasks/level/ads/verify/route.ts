@@ -6,7 +6,7 @@ export const fetchCache = 'force-no-store'
 export const revalidate = 0
 
 const LEVEL_NAME = 'bronze'
-const MIN_AD_SECONDS = 15 // ✅ Reduced from 28 to 15 (matches smartlink timer)
+const MIN_AD_SECONDS = 15
 
 // ✅ In-memory processing lock to prevent duplicate verification
 const processingLocks = new Map<string, boolean>()
@@ -109,6 +109,7 @@ export async function POST() {
     })
   } catch (error: any) {
     console.error('Verify error:', error)
+    processingLocks.delete('verify')
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
