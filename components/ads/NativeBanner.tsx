@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { ExternalLink } from 'lucide-react';
 
 interface NativeBannerProps {
   onComplete?: () => void;
@@ -12,6 +13,9 @@ interface NativeBannerProps {
 const NATIVE_ZONE_ID = '30276726';
 const NATIVE_SCRIPT_URL = 'https://nap5k.com/tag.min.js';
 
+// ✅ Fallback Ad (if native doesn't load)
+const FALLBACK_AD_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37ccabbe40a0330805d114bcb7f5a';
+
 export default function NativeBanner({ 
   onComplete, 
   duration = 5,
@@ -20,6 +24,7 @@ export default function NativeBanner({
   const [isLoaded, setIsLoaded] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(duration);
   const [adError, setAdError] = useState(false);
+  const [usingFallback, setUsingFallback] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const scriptLoadedRef = useRef(false);
@@ -31,14 +36,12 @@ export default function NativeBanner({
 
     const loadNativeAd = () => {
       try {
-        // ✅ Check if container exists
         if (!containerRef.current) {
           console.warn('⚠️ Native banner container not found');
           setIsLoaded(true);
           return;
         }
 
-        // ✅ Clear any existing content
         containerRef.current.innerHTML = '';
 
         // ✅ Create container for ad
@@ -57,19 +60,22 @@ export default function NativeBanner({
           setIsLoaded(true);
         };
         script.onerror = () => {
-          console.error('❌ Native banner failed to load');
+          console.error('❌ Native banner failed to load, using fallback');
           setAdError(true);
-          setIsLoaded(true); // Continue even if ad fails
+          setUsingFallback(true);
+          // ✅ Show fallback ad
+          showFallbackAd();
         };
 
-        // ✅ Append script to container
         containerRef.current.appendChild(script);
 
-        // ✅ Fallback: if script doesn't load in 5 seconds, continue
+        // ✅ Fallback: if script doesn't load in 5 seconds
         const fallbackTimer = setTimeout(() => {
           if (!isLoaded) {
-            console.warn('⚠️ Native banner loading timeout');
-            setIsLoaded(true);
+            console.warn('⚠️ Native banner loading timeout, using fallback');
+            setAdError(true);
+            setUsingFallback(true);
+            showFallbackAd();
           }
         }, 5000);
 
@@ -78,11 +84,37 @@ export default function NativeBanner({
       } catch (error) {
         console.error('❌ Native banner error:', error);
         setAdError(true);
-        setIsLoaded(true);
+        setUsingFallback(true);
+        showFallbackAd();
       }
     };
 
-    // ✅ Load after small delay
+    // ✅ Show fallback ad
+    const showFallbackAd = () => {
+      if (!containerRef.current) return;
+      containerRef.current.innerHTML = '';
+      
+      const fallbackDiv = document.createElement('div');
+      fallbackDiv.className = 'w-full p-2 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200';
+      fallbackDiv.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">📢</span>
+            <div>
+              <p class="text-xs font-semibold text-gray-700">Sponsored</p>
+              <p class="text-[10px] text-gray-500">Complete ad to continue</p>
+            </div>
+          </div>
+          <a href="${FALLBACK_AD_URL}" target="_blank" 
+             class="px-3 py-1 bg-[#6C63FF] text-white rounded-lg text-xs font-semibold hover:bg-[#5a52e0] transition-colors">
+            Watch Ad
+          </a>
+        </div>
+      `;
+      containerRef.current.appendChild(fallbackDiv);
+      setIsLoaded(true);
+    };
+
     const timer = setTimeout(loadNativeAd, 500);
     return () => clearTimeout(timer);
   }, []);
@@ -133,7 +165,7 @@ export default function NativeBanner({
           {/* ✅ Timer */}
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <p className="text-xs text-gray-400">
-              📢 {adError ? 'Ad loading...' : `Continuing in ${secondsLeft}s...`}
+              {usingFallback ? '📢 Click ad to continue...' : `📢 Continuing in ${secondsLeft}s...`}
             </p>
             <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div
