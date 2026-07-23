@@ -19,13 +19,14 @@ const FALLBACK_AD_URL = 'https://www.effectivecpmnetwork.com/cjwanx75u?key=35c37
 
 export default function NativeBanner({ 
   onComplete, 
-  duration = 5,
+  duration = 10,  // ✅ CHANGE 1: 10 seconds default
   className = '' 
 }: NativeBannerProps) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(duration);
   const [adError, setAdError] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [isTimerComplete, setIsTimerComplete] = useState(false); // ✅ CHANGE 2: Timer complete state
   const containerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const scriptLoadedRef = useRef(false);
@@ -63,7 +64,6 @@ export default function NativeBanner({
     const loadNativeAd = () => {
       try {
         if (!containerRef.current) {
-          // Container should always be mounted now, but guard just in case
           console.warn('⚠️ Native banner container not found, retrying...');
           setTimeout(loadNativeAd, 200);
           return;
@@ -71,13 +71,11 @@ export default function NativeBanner({
 
         containerRef.current.innerHTML = '';
 
-        // ✅ Create container for ad - ID must EXACTLY match Adsterra's expected container
         const adContainer = document.createElement('div');
         adContainer.id = NATIVE_CONTAINER_ID;
         adContainer.className = 'w-full min-h-[60px] flex items-center justify-center';
         containerRef.current.appendChild(adContainer);
 
-        // ✅ Create and load script (matches Adsterra dashboard snippet exactly)
         const script = document.createElement('script');
         script.src = NATIVE_SCRIPT_URL;
         script.async = true;
@@ -105,7 +103,6 @@ export default function NativeBanner({
 
     const startTimer = setTimeout(loadNativeAd, 500);
 
-    // ✅ Fallback: if script doesn't load within 5s of starting the load
     const fallbackTimer = setTimeout(() => {
       setIsLoaded((current) => {
         if (!current) {
@@ -124,16 +121,18 @@ export default function NativeBanner({
     };
   }, []);
 
-  // ✅ Timer for auto-navigation
+  // ✅ Timer for auto-navigation with 10 seconds
   useEffect(() => {
     if (!isLoaded) return;
 
     setSecondsLeft(duration);
+    setIsTimerComplete(false); // ✅ Reset timer complete state
     
     timerRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timerRef.current!);
+          setIsTimerComplete(true); // ✅ Timer complete
           if (onComplete) {
             onComplete();
           }
@@ -150,12 +149,14 @@ export default function NativeBanner({
     };
   }, [isLoaded, duration, onComplete]);
 
+  const progress = ((duration - secondsLeft) / duration) * 100;
+
   return (
     <div 
       className={`w-full bg-white rounded-2xl shadow-lg border border-gray-100 p-4 ${className}`}
     >
       <div className="space-y-3">
-        {/* ✅ Native Ad Container - ALWAYS mounted so the script can find it */}
+        {/* Native Ad Container */}
         <div className="relative w-full min-h-[60px]">
           {!isLoaded && (
             <div className="absolute inset-0 flex items-center justify-center gap-2">
@@ -169,16 +170,17 @@ export default function NativeBanner({
           />
         </div>
 
-        {/* ✅ Timer */}
+        {/* Timer */}
         {isLoaded && (
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <p className="text-xs text-gray-400">
-              {usingFallback ? '📢 Click ad to continue...' : `📢 Continuing in ${secondsLeft}s...`}
+              {usingFallback ? '📢 Click ad to continue...' : 
+               isTimerComplete ? '✅ Ad complete! Tap Continue' : `📢 Please wait ${secondsLeft}s...`}
             </p>
             <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 transition-all duration-1000"
-                style={{ width: `${((duration - secondsLeft) / duration) * 100}%` }}
+                style={{ width: `${progress}%` }}
               />
             </div>
           </div>

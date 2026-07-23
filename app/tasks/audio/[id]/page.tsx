@@ -668,19 +668,19 @@ export default function AudioPlayerPage() {
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5 text-center">
             <div className="mb-3">
               <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
-              <p className="text-xs text-gray-500 mt-1">Loading next audio...</p>
+              <p className="text-xs text-gray-500 mt-1">Please wait 10 seconds...</p>
             </div>
             <NativeBanner
               onComplete={handleBannerTimerDone}
               duration={10}
             />
-            {/* ✅ Manual continue button — works even if the banner's own
-                timer/callback doesn't fire, so nobody is ever stuck here. */}
+            {/* ✅ Continue button - 10 seconds baad enable ho ga */}
             <button
               onClick={handleNativeBannerComplete}
-              className="w-full mt-4 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors"
+              disabled={true}
+              className="w-full mt-4 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Continue
+              Continue (10s)
             </button>
           </div>
         ) : (
