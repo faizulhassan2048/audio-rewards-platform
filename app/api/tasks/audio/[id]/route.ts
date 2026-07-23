@@ -19,7 +19,6 @@ export async function GET(
 
     const audioId = params.id;
 
-    // ✅ Fetch audio from database
     const { data: audio, error } = await supabase
       .from('audios')
       .select('id, title, audio_url, thumbnail_url, duration_seconds')
@@ -27,11 +26,10 @@ export async function GET(
       .single();
 
     if (error || !audio) {
-      console.error('❌ Audio not found:', audioId);
+      console.error('❌ Audio not found:', audioId, error?.message);
       return NextResponse.json({ error: 'Audio not found' }, { status: 404 });
     }
 
-    console.log('✅ Audio found:', audio.title);
     return NextResponse.json(audio);
   } catch (error) {
     console.error('Error fetching audio:', error);

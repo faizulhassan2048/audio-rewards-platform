@@ -91,7 +91,6 @@ export default function AudioPlayerPage() {
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
   const hasNavigatedRef = useRef(false);
-  const bannerSafetyTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Tab visibility detection
   useEffect(() => {
@@ -202,20 +201,33 @@ export default function AudioPlayerPage() {
         const index = statusData.completed_audios + 1;
         const total = statusData.total_audios || 15;
 
+        // ✅ Small retry helper — a brand-new audio row (the one we were
+        // just redirected to) can occasionally not be visible yet due to
+        // DB read-replica lag right after level/complete's write. Instead
+        // of showing a dead "Audio not found" screen on the first miss,
+        // retry a couple of times with a short delay.
+        const fetchWithRetry = async (url: string, opts?: RequestInit, attempts = 3) => {
+          for (let i = 0; i < attempts; i++) {
+            const res = await fetch(url, { cache: 'no-store', ...opts });
+            if (res.ok) return res;
+            if (i < attempts - 1) await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+          }
+          return null;
+        };
+
         const [sessionRes, audioRes] = await Promise.all([
-          fetch('/api/audio/session', {
+          fetchWithRetry('/api/audio/session', {
             method: 'POST',
-            cache: 'no-store',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ audioId }),
           }),
-          fetch(`/api/tasks/audio/${audioId}`, { cache: 'no-store' }),
+          fetchWithRetry(`/api/tasks/audio/${audioId}`),
         ]);
 
         let token = null;
         let audioUrl = null;
 
-        if (sessionRes.ok) {
+        if (sessionRes?.ok) {
           const sessionText = await sessionRes.text();
           let sessionData: any = {};
           try {
@@ -228,7 +240,7 @@ export default function AudioPlayerPage() {
           setSessionToken(token);
         }
 
-        if (audioRes.ok) {
+        if (audioRes?.ok) {
           const audioText = await audioRes.text();
           let data: any = null;
           try {
@@ -331,10 +343,6 @@ export default function AudioPlayerPage() {
   ) => {
     if (hasNavigatedRef.current) return;
     hasNavigatedRef.current = true;
-    if (bannerSafetyTimer.current) {
-      clearTimeout(bannerSafetyTimer.current);
-      bannerSafetyTimer.current = null;
-    }
 
     if (levelComplete || !nextAudio) {
       window.location.href = '/tasks/bronze?complete=true';
@@ -344,29 +352,23 @@ export default function AudioPlayerPage() {
     window.location.href = `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`;
   };
 
-  // ✅ Safety net: the moment the native banner shows, arm a timeout that
-  // navigates forward on its own even if NativeBanner's own onComplete
-  // never fires for any reason (e.g. ad script failure). This is what
-  // guarantees the user is never stuck on the banner screen.
+  // ✅ No automatic navigation anymore — the native banner just displays;
+  // moving to the next audio only happens when the user taps "Continue".
+  // (Previously a safety timer auto-advanced after 6s; removed on request.)
   useEffect(() => {
     if (showNativeBanner) {
       hasNavigatedRef.current = false;
-      bannerSafetyTimer.current = setTimeout(() => {
-        goToNext(pendingNextAudio, pendingNextIndex, pendingTotal, pendingLevelComplete);
-      }, 6000);
     }
-    return () => {
-      if (bannerSafetyTimer.current) {
-        clearTimeout(bannerSafetyTimer.current);
-        bannerSafetyTimer.current = null;
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showNativeBanner]);
 
+  // Called only by the manual "Continue" button tap.
   const handleNativeBannerComplete = () => {
     goToNext(pendingNextAudio, pendingNextIndex, pendingTotal, pendingLevelComplete);
   };
+
+  // Passed to NativeBanner's own onComplete — intentionally a no-op so
+  // the banner's internal 10s timer never triggers navigation on its own.
+  const handleBannerTimerDone = () => {};
 
   // Handle audio complete
   const handleAudioComplete = async () => {
@@ -533,7 +535,13 @@ export default function AudioPlayerPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-white">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Audio not found</p>
+          <p className="text-gray-500 mb-4">Could not load this audio.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-5 py-2 bg-[#6C63FF] text-white rounded-lg font-semibold hover:bg-[#5a52e0] transition-colors mr-3"
+          >
+            Retry
+          </button>
           <Link href="/tasks/bronze" className="text-[#6C63FF] hover:underline">
             Back to Level
           </Link>
@@ -573,8 +581,8 @@ export default function AudioPlayerPage() {
               <p className="text-xs text-gray-500 mt-1">Loading next audio...</p>
             </div>
             <NativeBanner
-              onComplete={handleNativeBannerComplete}
-              duration={5}
+              onComplete={handleBannerTimerDone}
+              duration={10}
             />
             {/* ✅ Manual continue button — works even if the banner's own
                 timer/callback doesn't fire, so nobody is ever stuck here. */}
