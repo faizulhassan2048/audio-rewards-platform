@@ -92,6 +92,37 @@ export default function AudioPlayerPage() {
   const mountRef = useRef(true);
   const hasNavigatedRef = useRef(false);
 
+  // ✅ NEW: prevents two different navigation calls from firing at once
+  // (e.g. onEnded + a stray click both trying to send us forward).
+  const navigationLockRef = useRef(false);
+  // ✅ NEW: cancels the in-flight status/audio fetch if this effect
+  // re-runs or the component unmounts before it resolves.
+  const fetchControllerRef = useRef<AbortController | null>(null);
+  // ✅ NEW: always holds the audioId this mounted instance is *for*,
+  // so any async callback can check "am I still relevant?" after an await.
+  const currentAudioIdRef = useRef(audioId);
+
+  // Track current audioId + reset per-mount locks, abort any in-flight
+  // fetch on cleanup (covers fast unmounts / StrictMode double-invoke).
+  useEffect(() => {
+    currentAudioIdRef.current = audioId;
+    navigationLockRef.current = false;
+    hasNavigatedRef.current = false;
+
+    return () => {
+      fetchControllerRef.current?.abort();
+    };
+  }, [audioId]);
+
+  // Central navigation helper — every hard redirect in this file goes
+  // through here so the lock is always set right before navigating and
+  // never forgotten on one of the branches.
+  const hardNavigate = (url: string) => {
+    if (navigationLockRef.current) return;
+    navigationLockRef.current = true;
+    window.location.replace(url);
+  };
+
   // Tab visibility detection
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -168,33 +199,49 @@ export default function AudioPlayerPage() {
   // Fetch audio — confirms this audio_id is actually current, then loads it.
   useEffect(() => {
     const fetchAudio = async () => {
+      // Abort any previous in-flight fetch for this page instance, then
+      // start a fresh controller for this run.
+      fetchControllerRef.current?.abort();
+      const controller = new AbortController();
+      fetchControllerRef.current = controller;
+
       try {
         const statusData = await safeFetch('/api/tasks/level/status');
 
+        // If audioId changed (new navigation already happened) while this
+        // await was pending, this response is stale — drop it silently.
+        if (currentAudioIdRef.current !== audioId) {
+          console.log('Ignoring stale status response for', audioId);
+          return;
+        }
+
         if (!statusData) {
-          window.location.href = '/tasks/bronze';
+          hardNavigate('/tasks/bronze');
           return;
         }
 
         if (statusData.level_complete) {
-          window.location.href = '/tasks/bronze?complete=true';
+          hardNavigate('/tasks/bronze?complete=true');
           return;
         }
 
         if (statusData.ad_required) {
-          window.location.href = '/tasks/bronze';
+          hardNavigate('/tasks/bronze');
           return;
         }
 
         // ✅ Covers "already completed" and "out of order" in one check —
-        // if this audio_id isn't the server's current_audio, redirect hard.
+        // if this audio_id isn't the server's current_audio, redirect hard
+        // to the audio the server actually says is current.
         if (statusData.current_audio?.id !== audioId) {
           if (statusData.current_audio) {
             const correctIndex = (statusData.completed_audios || 0) + 1;
-            window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`;
+            hardNavigate(
+              `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`
+            );
             return;
           }
-          window.location.href = '/tasks/bronze';
+          hardNavigate('/tasks/bronze');
           return;
         }
 
@@ -208,7 +255,7 @@ export default function AudioPlayerPage() {
         // retry a couple of times with a short delay.
         const fetchWithRetry = async (url: string, opts?: RequestInit, attempts = 3) => {
           for (let i = 0; i < attempts; i++) {
-            const res = await fetch(url, { cache: 'no-store', ...opts });
+            const res = await fetch(url, { cache: 'no-store', signal: controller.signal, ...opts });
             if (res.ok) return res;
             if (i < attempts - 1) await new Promise((r) => setTimeout(r, 400 * (i + 1)));
           }
@@ -223,6 +270,13 @@ export default function AudioPlayerPage() {
           }),
           fetchWithRetry(`/api/tasks/audio/${audioId}`),
         ]);
+
+        // Bail out if a newer navigation already happened while we were
+        // waiting on the retries above.
+        if (currentAudioIdRef.current !== audioId) {
+          console.log('Ignoring stale audio response for', audioId);
+          return;
+        }
 
         let token = null;
         let audioUrl = null;
@@ -261,25 +315,48 @@ export default function AudioPlayerPage() {
             total,
           });
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
         console.error('Error fetching audio:', error);
         toast.error('Could not load audio');
-        window.location.href = '/tasks/bronze';
+        hardNavigate('/tasks/bronze');
       } finally {
-        setLoading(false);
+        // Only stop the loading spinner if we're still on the audioId
+        // this fetch was actually for.
+        if (currentAudioIdRef.current === audioId) {
+          setLoading(false);
+        }
       }
     };
 
     fetchAudio();
+
+    return () => {
+      fetchControllerRef.current?.abort();
+    };
   }, [audioId]);
 
   // Preload audio when URL changes
   useEffect(() => {
     if (audio && audioRef.current) {
       audioRef.current.load();
+      audioRef.current.currentTime = 0;
       setAudioLoaded(true);
     }
   }, [audio]);
+
+  // Full <audio> element cleanup on unmount — releases the network
+  // resource immediately instead of letting the old element keep
+  // buffering in the background during navigation.
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.removeAttribute('src');
+        audioRef.current.load();
+      }
+    };
+  }, []);
 
   // Send heartbeat
   const sendHeartbeat = async () => {
@@ -315,41 +392,41 @@ export default function AudioPlayerPage() {
   // ✅ Called only after the server has verified the milestone ad was
   // actually watched (via MilestoneAdGate -> /ads/verify).
   const handleMilestoneUnlocked = () => {
-    if (!milestoneGate || hasNavigatedRef.current) return;
-    hasNavigatedRef.current = true;
+    if (!milestoneGate || navigationLockRef.current) return;
 
     const { levelComplete, nextAudio } = milestoneGate;
     setMilestoneGate(null);
 
     if (levelComplete || !nextAudio) {
       toast.success('🎉 Level Complete!');
-      window.location.href = '/tasks/bronze?complete=true';
+      hardNavigate('/tasks/bronze?complete=true');
       return;
     }
 
     const nextIndex = (audio?.index || 0) + 1;
-    window.location.href = `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`;
+    hardNavigate(`/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
   };
 
   // ✅ Single place that actually navigates onward — hard navigation
-  // (window.location, not router.push/replace) guarantees a fully fresh
-  // page and a fresh <audio> element every single time. This is what
-  // fixes "next audio doesn't always load / sometimes shows the same one".
+  // (window.location.replace, not router.push/replace) guarantees a fully
+  // fresh page and a fresh <audio> element every single time, and unlike
+  // window.location.href it doesn't leave the completed-audio page in
+  // browser history (so back button can't land you on it again).
   const goToNext = (
     nextAudio: NextAudioRef | null,
     nextIndex: number,
     total: number,
     levelComplete: boolean
   ) => {
-    if (hasNavigatedRef.current) return;
+    if (hasNavigatedRef.current || navigationLockRef.current) return;
     hasNavigatedRef.current = true;
 
     if (levelComplete || !nextAudio) {
-      window.location.href = '/tasks/bronze?complete=true';
+      hardNavigate('/tasks/bronze?complete=true');
       return;
     }
 
-    window.location.href = `/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`;
+    hardNavigate(`/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`);
   };
 
   // ✅ No automatic navigation anymore — the native banner just displays;
@@ -372,7 +449,7 @@ export default function AudioPlayerPage() {
 
   // Handle audio complete
   const handleAudioComplete = async () => {
-    if (isSubmitting || !mountRef.current || hasNavigatedRef.current) return;
+    if (isSubmitting || !mountRef.current || hasNavigatedRef.current || navigationLockRef.current) return;
 
     setIsSubmitting(true);
     setAudioComplete(true);
@@ -409,11 +486,18 @@ export default function AudioPlayerPage() {
         console.error('JSON parse error on complete response');
       }
 
+      console.log('Current:', audioId);
+      console.log('Next:', data.next_audio?.id);
+
       // Any rejection (409 out-of-order/already-completed, ad required,
       // session mismatch, etc.) — re-check status and hard-redirect to
       // wherever the server actually says we should be, never leave the
       // user on a dead screen.
       if (!res.ok) {
+        // Not actually navigating yet, so make sure the lock is clear
+        // before we decide where to send the user.
+        navigationLockRef.current = false;
+
         if (data.error === 'AD_REQUIRED') {
           toast.info('📢 Complete ad to continue');
           setMilestoneGate({
@@ -427,11 +511,15 @@ export default function AudioPlayerPage() {
 
         toast.error(data.error || 'Could not save progress');
         const statusData = await safeFetch('/api/tasks/level/status');
+        console.log('Status:', statusData?.current_audio?.id);
+
         if (statusData?.current_audio && statusData.current_audio.id !== audioId) {
           const correctIndex = (statusData.completed_audios || 0) + 1;
-          window.location.href = `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`;
+          hardNavigate(
+            `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`
+          );
         } else {
-          window.location.href = '/tasks/bronze';
+          hardNavigate('/tasks/bronze');
         }
         return;
       }
@@ -465,6 +553,7 @@ export default function AudioPlayerPage() {
       // handled separately above via data.show_ad, before this point.
       if (data.next_audio) {
         toast.success(`✅ Audio ${audio?.index || 0}/${total} complete!`);
+        console.log('Navigate to next audio');
         setPendingNextAudio(data.next_audio);
         setPendingNextIndex(nextIndex);
         setPendingTotal(total);
@@ -474,11 +563,12 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      window.location.href = '/tasks/bronze';
+      hardNavigate('/tasks/bronze');
 
     } catch (error) {
       console.error('Error completing audio:', error);
       toast.error('Network error');
+      navigationLockRef.current = false;
       setIsSubmitting(false);
       setAudioComplete(false);
     }
@@ -506,7 +596,7 @@ export default function AudioPlayerPage() {
         setVolumeWarning(false);
       }
 
-      await audioRef.current.play();
+      await audioRef.current.play().catch(() => {});
       setIsPlaying(true);
       setTabWarning(false);
     } catch (error) {
