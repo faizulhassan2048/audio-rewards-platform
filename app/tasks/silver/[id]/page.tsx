@@ -36,7 +36,7 @@ export default function SilverParagraphPage() {
   const [adTimerSeconds, setAdTimerSeconds] = useState(10);
   const [isAdTimerRunning, setIsAdTimerRunning] = useState(false);
   const [showRetry, setShowRetry] = useState(false);
-  const [apiCompleted, setApiCompleted] = useState(false); // ✅ track API call success
+  const [apiCompleted, setApiCompleted] = useState(false);
 
   // Timer for 10 seconds
   useEffect(() => {
@@ -61,7 +61,7 @@ export default function SilverParagraphPage() {
     }
   }, [showNativeAd]);
 
-  // Fetch latest status (used for navigation fallback)
+  // Fetch latest status with retry (for initial load)
   const fetchLatestStatus = async (retries = 3): Promise<any> => {
     for (let i = 0; i < retries; i++) {
       try {
@@ -73,7 +73,6 @@ export default function SilverParagraphPage() {
       } catch (e) {
         console.warn(`Status fetch attempt ${i + 1} failed:`, e);
       }
-      // Wait before retry (exponential backoff)
       if (i < retries - 1) await new Promise(r => setTimeout(r, 500 * (i + 1)));
     }
     return null;
@@ -119,7 +118,6 @@ export default function SilverParagraphPage() {
 
         setParagraph({ ...data, paragraph_number: number, total: total });
         setCompletedCount(number - 1);
-        // Reset states for new paragraph
         setUserAnswer('');
         setIsSubmitted(false);
         setIsCorrect(false);
@@ -154,8 +152,6 @@ export default function SilverParagraphPage() {
     }
 
     toast.success('✅ Correct!');
-
-    // Show ad immediately
     setShowNativeAd(true);
 
     try {
@@ -174,27 +170,25 @@ export default function SilverParagraphPage() {
 
       if (!res.ok) {
         toast.error(data.error || 'Could not save progress');
-        // Keep ad showing, user can try again via retry later
         setIsSubmitting(false);
         return;
       }
 
       setCompletedCount(data.completed_paragraphs || paragraph.paragraph_number);
-      setApiCompleted(true); // ✅ API call succeeded
+      setApiCompleted(true);
       if (data.level_complete) {
         setIsLevelComplete(true);
       }
     } catch (error) {
       console.error('Error submitting:', error);
       toast.error('Network error, but you can continue');
-      // Even if API fails, we set apiCompleted to true to allow navigation (fallback will fetch status)
       setApiCompleted(true);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ✅ Core navigation function with retry and fallback
+  // ✅ Core navigation function with robust auto-retry
   const navigateToNext = async () => {
     if (isNavigating) return;
     setIsNavigating(true);
@@ -205,38 +199,64 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // Wait for DB commit
-    await new Promise(resolve => setTimeout(resolve, 400));
+    // Wait longer for DB commit
+    await new Promise(resolve => setTimeout(resolve, 800));
 
-    const status = await fetchLatestStatus(3); // retry up to 3 times
+    // Try up to 5 times with increasing delays
+    const maxAttempts = 5;
+    let attempt = 0;
+    let status = null;
 
-    if (!status) {
-      // Network failure – show retry button
+    while (attempt < maxAttempts) {
+      attempt++;
+      toast.info(`⏳ Loading next paragraph... (attempt ${attempt}/${maxAttempts})`);
+
+      try {
+        const res = await fetch('/api/tasks/silver/status', { cache: 'no-store' });
+        const text = await res.text();
+        if (text) {
+          try { status = JSON.parse(text); } catch {}
+        }
+      } catch (e) {
+        console.warn(`Status fetch attempt ${attempt} failed:`, e);
+      }
+
+      if (status) {
+        if (status.level_complete) {
+          router.replace('/tasks/silver?complete=true');
+          return;
+        }
+        const next = status.current_paragraph;
+        if (next && next.id !== paragraphId) {
+          const nextNum = (status.completed_paragraphs || 0) + 1;
+          router.replace(`/tasks/silver/${next.id}?number=${nextNum}&total=${totalCount}`);
+          return;
+        }
+        // If still same paragraph, wait and retry
+        if (attempt < maxAttempts) {
+          const delay = 800 * Math.pow(1.5, attempt - 1);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+      } else {
+        // No status, wait and retry
+        if (attempt < maxAttempts) {
+          const delay = 800 * Math.pow(1.5, attempt - 1);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+      }
+
+      // If we reach here, all attempts failed
       setShowRetry(true);
       setIsNavigating(false);
-      toast.error('Network error. Please retry.');
+      toast.error('Could not load next paragraph. Please retry.');
       return;
     }
 
-    if (status.level_complete) {
-      router.replace('/tasks/silver?complete=true');
-      return;
-    }
-
-    const next = status.current_paragraph;
-    if (next && next.id !== paragraphId) {
-      const nextNum = (status.completed_paragraphs || 0) + 1;
-      router.replace(`/tasks/silver/${next.id}?number=${nextNum}&total=${totalCount}`);
-    } else {
-      // No next paragraph – check if completed
-      if (status.completed_paragraphs >= 15) {
-        router.replace('/tasks/silver?complete=true');
-      } else {
-        setShowRetry(true);
-        setIsNavigating(false);
-        toast.error('Could not load next paragraph. Please retry.');
-      }
-    }
+    // Should never reach here, but fallback
+    setShowRetry(true);
+    setIsNavigating(false);
   };
 
   const handleContinue = () => {
