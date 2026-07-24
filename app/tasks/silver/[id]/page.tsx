@@ -38,13 +38,12 @@ export default function SilverParagraphPage() {
   const [adTimerSeconds, setAdTimerSeconds] = useState(10);
   const [isAdTimerRunning, setIsAdTimerRunning] = useState(false);
   
-  // Next paragraph data from API
+  // Next paragraph data (cached from API)
   const [nextParagraphId, setNextParagraphId] = useState<string | null>(null);
   const [nextParagraphNumber, setNextParagraphNumber] = useState<number | null>(null);
   
   // Retry state
   const [showRetry, setShowRetry] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
 
   const mountRef = useRef(true);
 
@@ -70,7 +69,6 @@ export default function SilverParagraphPage() {
       setAdTimerSeconds(10);
       setIsAdTimerRunning(false);
       setShowRetry(false);
-      setRetryCount(0);
     }
   }, [showNativeAd]);
 
@@ -81,32 +79,13 @@ export default function SilverParagraphPage() {
     router.push(`/tasks/silver/${id}?number=${number}&total=${totalCount}`);
   };
 
-  // Fetch status and get current paragraph (used for fallback and retry)
-  const fetchStatusAndRedirect = async () => {
+  // Fetch latest status (used for fallback and retry)
+  const fetchLatestStatus = async () => {
     try {
-      const statusRes = await fetch('/api/tasks/silver/status', { cache: 'no-store' });
-      const statusText = await statusRes.text();
-      const statusData = statusText ? JSON.parse(statusText) : null;
-      
-      if (!statusData) {
-        return null;
-      }
-
-      if (statusData.level_complete) {
-        return { levelComplete: true };
-      }
-
-      if (statusData.current_paragraph) {
-        const nextNum = (statusData.completed_paragraphs || 0) + 1;
-        return {
-          id: statusData.current_paragraph.id,
-          number: nextNum,
-        };
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Error fetching status:', error);
+      const res = await fetch('/api/tasks/silver/status', { cache: 'no-store' });
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    } catch {
       return null;
     }
   };
@@ -115,20 +94,26 @@ export default function SilverParagraphPage() {
   useEffect(() => {
     const loadParagraph = async () => {
       try {
-        const statusData = await fetchStatusAndRedirect();
+        const statusData = await fetchLatestStatus();
         if (!statusData) {
           router.push('/tasks/silver');
           return;
         }
 
-        if (statusData.levelComplete) {
+        if (statusData.level_complete) {
           router.push('/tasks/silver?complete=true');
           return;
         }
 
         // If wrong paragraph, redirect
-        if (statusData.id !== paragraphId) {
-          router.replace(`/tasks/silver/${statusData.id}?number=${statusData.number}&total=${totalCount}`);
+        if (statusData.current_paragraph?.id !== paragraphId) {
+          const next = statusData.current_paragraph;
+          if (next) {
+            const nextNum = (statusData.completed_paragraphs || 0) + 1;
+            router.replace(`/tasks/silver/${next.id}?number=${nextNum}&total=${totalCount}`);
+          } else {
+            router.push('/tasks/silver');
+          }
           return;
         }
 
@@ -162,6 +147,7 @@ export default function SilverParagraphPage() {
         setShowRetry(false);
         setNextParagraphId(null);
         setNextParagraphNumber(null);
+        setIsNavigating(false);
       } catch (error) {
         console.error('Error:', error);
         toast.error('Could not load paragraph');
@@ -205,13 +191,14 @@ export default function SilverParagraphPage() {
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
 
-      // Already completed — get next from status
+      // Already completed — fetch status to get next
       if (data.alreadyCompleted || data.error === 'Already completed') {
         toast.info('⏩ Already completed! Moving to next...');
-        const next = await fetchStatusAndRedirect();
-        if (next && !next.levelComplete) {
-          setNextParagraphId(next.id);
-          setNextParagraphNumber(next.number);
+        const status = await fetchLatestStatus();
+        if (status?.current_paragraph && status.current_paragraph.id !== paragraphId) {
+          const nextNum = (status.completed_paragraphs || 0) + 1;
+          setNextParagraphId(status.current_paragraph.id);
+          setNextParagraphNumber(nextNum);
           setShowNativeAd(true);
         } else {
           router.push('/tasks/silver');
@@ -236,16 +223,17 @@ export default function SilverParagraphPage() {
         return;
       }
 
-      // Store next paragraph from API
+      // ✅ Store next paragraph from API
       if (data.next_paragraph) {
         setNextParagraphId(data.next_paragraph.id);
         setNextParagraphNumber((paragraph.paragraph_number || 0) + 1);
       } else {
         // Fallback: fetch status
-        const next = await fetchStatusAndRedirect();
-        if (next && !next.levelComplete) {
-          setNextParagraphId(next.id);
-          setNextParagraphNumber(next.number);
+        const status = await fetchLatestStatus();
+        if (status?.current_paragraph && status.current_paragraph.id !== paragraphId) {
+          const nextNum = (status.completed_paragraphs || 0) + 1;
+          setNextParagraphId(status.current_paragraph.id);
+          setNextParagraphNumber(nextNum);
         }
       }
 
@@ -261,10 +249,10 @@ export default function SilverParagraphPage() {
     }
   };
 
-  // Handle native ad complete - with retry logic
+  // ✅ Reliable navigation: always fetch latest status before navigating
   const handleNativeAdComplete = async () => {
     if (isAdTimerRunning || isNavigating) return;
-    
+    setIsNavigating(true);
     setShowNativeAd(false);
 
     if (isLevelComplete) {
@@ -272,53 +260,51 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // Check if we have a valid next paragraph that is DIFFERENT from current
-    if (nextParagraphId && nextParagraphId !== paragraphId && nextParagraphNumber) {
-      goToNextParagraph(nextParagraphId, nextParagraphNumber);
+    // ✅ Wait 200ms for DB commit, then fetch fresh status
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const status = await fetchLatestStatus();
+
+    if (!status) {
+      setShowRetry(true);
+      setIsNavigating(false);
       return;
     }
 
-    // If same or missing, fetch fresh status and retry
-    console.warn('⚠️ Next paragraph missing or same as current, fetching fresh status...');
-    const next = await fetchStatusAndRedirect();
-    if (next && !next.levelComplete && next.id !== paragraphId) {
-      setNextParagraphId(next.id);
-      setNextParagraphNumber(next.number);
-      // Retry navigation after a short delay
-      setTimeout(() => {
-        if (next.id && next.number) {
-          goToNextParagraph(next.id, next.number);
-        } else {
-          setShowRetry(true);
-        }
-      }, 300);
+    // ✅ If status says level complete
+    if (status.level_complete) {
+      router.push('/tasks/silver?complete=true');
+      return;
+    }
+
+    // ✅ Get next paragraph from status
+    const next = status.current_paragraph;
+    if (next && next.id !== paragraphId) {
+      const nextNum = (status.completed_paragraphs || 0) + 1;
+      // Navigate directly
+      router.push(`/tasks/silver/${next.id}?number=${nextNum}&total=${totalCount}`);
     } else {
-      // Still no new paragraph — show retry button
+      // ❌ No next paragraph or same paragraph — show retry
       setShowRetry(true);
+      setIsNavigating(false);
     }
   };
 
-  // Manual retry function
+  // ✅ Manual retry
   const handleRetry = async () => {
     setShowRetry(false);
-    setRetryCount(prev => prev + 1);
+    setIsNavigating(true);
     toast.info('🔄 Retrying...');
-    
-    const next = await fetchStatusAndRedirect();
-    if (next && !next.levelComplete && next.id !== paragraphId) {
-      setNextParagraphId(next.id);
-      setNextParagraphNumber(next.number);
-      setTimeout(() => {
-        if (next.id && next.number) {
-          goToNextParagraph(next.id, next.number);
-        } else {
-          setShowRetry(true);
-          toast.error('Still unable to load next paragraph. Please try again.');
-        }
-      }, 300);
+
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const status = await fetchLatestStatus();
+
+    if (status?.current_paragraph && status.current_paragraph.id !== paragraphId) {
+      const nextNum = (status.completed_paragraphs || 0) + 1;
+      router.push(`/tasks/silver/${status.current_paragraph.id}?number=${nextNum}&total=${totalCount}`);
     } else {
       setShowRetry(true);
-      toast.error('Could not load next paragraph. Please try again later.');
+      setIsNavigating(false);
+      toast.error('Could not load next paragraph. Please try again.');
     }
   };
 
