@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { ArrowLeft, CheckCircle, AlertCircle, Clock, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import TopBanner from '@/components/ads/TopBanner';
@@ -33,19 +33,25 @@ export default function SilverParagraphPage() {
   const [totalCount, setTotalCount] = useState(15);
   const [isLevelComplete, setIsLevelComplete] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
-  const [adTimerSeconds, setAdTimerSeconds] = useState(5);
+  
+  // ✅ Timer 10 seconds (changed from 5)
+  const [adTimerSeconds, setAdTimerSeconds] = useState(10);
   const [isAdTimerRunning, setIsAdTimerRunning] = useState(false);
   
-  // ✅ Store next paragraph directly from API response
+  // ✅ Next paragraph data from API
   const [nextParagraphId, setNextParagraphId] = useState<string | null>(null);
   const [nextParagraphNumber, setNextParagraphNumber] = useState<number | null>(null);
+  
+  // ✅ Retry state
+  const [showRetry, setShowRetry] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   const mountRef = useRef(true);
 
-  // Timer effect
+  // Timer effect – 10 seconds
   useEffect(() => {
     if (showNativeAd) {
-      setAdTimerSeconds(5);
+      setAdTimerSeconds(10);
       setIsAdTimerRunning(true);
       
       const timer = setInterval(() => {
@@ -61,22 +67,24 @@ export default function SilverParagraphPage() {
       
       return () => clearInterval(timer);
     } else {
-      setAdTimerSeconds(5);
+      setAdTimerSeconds(10);
       setIsAdTimerRunning(false);
+      setShowRetry(false);
+      setRetryCount(0);
     }
   }, [showNativeAd]);
 
-  // ✅ Navigate to next paragraph
+  // Navigate to next paragraph
   const goToNextParagraph = (id: string, number: number) => {
     if (isNavigating) return;
     setIsNavigating(true);
     router.push(`/tasks/silver/${id}?number=${number}&total=${totalCount}`);
   };
 
-  // ✅ Fetch status and get current paragraph
+  // Fetch status and get current paragraph (used for fallback and retry)
   const fetchStatusAndRedirect = async () => {
     try {
-      const statusRes = await fetch('/api/tasks/silver/status');
+      const statusRes = await fetch('/api/tasks/silver/status', { cache: 'no-store' });
       const statusText = await statusRes.text();
       const statusData = statusText ? JSON.parse(statusText) : null;
       
@@ -105,6 +113,7 @@ export default function SilverParagraphPage() {
     }
   };
 
+  // Load paragraph
   useEffect(() => {
     const loadParagraph = async () => {
       try {
@@ -122,7 +131,7 @@ export default function SilverParagraphPage() {
         const total = parseInt(params.get('total') || '15');
         setTotalCount(total);
 
-        const res = await fetch(`/api/tasks/silver/paragraph/${paragraphId}`);
+        const res = await fetch(`/api/tasks/silver/paragraph/${paragraphId}`, { cache: 'no-store' });
         const text = await res.text();
         const data = text ? JSON.parse(text) : null;
 
@@ -138,7 +147,7 @@ export default function SilverParagraphPage() {
           total: total
         });
 
-        setCompletedCount(statusData.number - 1);
+        setCompletedCount(number - 1);
       } catch (error) {
         console.error('Error:', error);
         toast.error('Could not load paragraph');
@@ -172,6 +181,7 @@ export default function SilverParagraphPage() {
       const res = await fetch('/api/tasks/silver/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
           paragraph_id: paragraphId,
           paragraph_number: paragraph.paragraph_number,
@@ -181,24 +191,16 @@ export default function SilverParagraphPage() {
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
 
-      // ✅ Already completed — auto navigate
+      // Already completed — get next from status
       if (data.alreadyCompleted || data.error === 'Already completed') {
         toast.info('⏩ Already completed! Moving to next...');
-        if (data.next_paragraph) {
-          const nextNum = (paragraph.paragraph_number || 0) + 1;
-          setTimeout(() => {
-            goToNextParagraph(data.next_paragraph.id, nextNum);
-          }, 300);
+        const next = await fetchStatusAndRedirect();
+        if (next) {
+          setNextParagraphId(next.id);
+          setNextParagraphNumber(next.number);
+          setShowNativeAd(true);
         } else {
-          // ✅ Fallback: fetch from status
-          const next = await fetchStatusAndRedirect();
-          if (next) {
-            setTimeout(() => {
-              goToNextParagraph(next.id, next.number);
-            }, 300);
-          } else {
-            router.push('/tasks/silver');
-          }
+          router.push('/tasks/silver');
         }
         setIsSubmitting(false);
         return;
@@ -220,10 +222,17 @@ export default function SilverParagraphPage() {
         return;
       }
 
-      // ✅ Save next paragraph for navigation
+      // ✅ Store next paragraph from API
       if (data.next_paragraph) {
         setNextParagraphId(data.next_paragraph.id);
         setNextParagraphNumber((paragraph.paragraph_number || 0) + 1);
+      } else {
+        // Fallback: fetch status
+        const next = await fetchStatusAndRedirect();
+        if (next) {
+          setNextParagraphId(next.id);
+          setNextParagraphNumber(next.number);
+        }
       }
 
       setShowNativeAd(true);
@@ -238,6 +247,7 @@ export default function SilverParagraphPage() {
     }
   };
 
+  // ✅ Handle native ad complete - with retry logic
   const handleNativeAdComplete = async () => {
     if (isAdTimerRunning || isNavigating) return;
     
@@ -248,18 +258,53 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // ✅ Use saved next paragraph
-    if (nextParagraphId && nextParagraphNumber) {
+    // ✅ Check if we have a valid next paragraph that is DIFFERENT from current
+    if (nextParagraphId && nextParagraphId !== paragraphId && nextParagraphNumber) {
       goToNextParagraph(nextParagraphId, nextParagraphNumber);
       return;
     }
 
-    // ✅ Fallback: fetch from status
+    // ✅ If same or missing, fetch fresh status and retry
+    console.warn('⚠️ Next paragraph missing or same as current, fetching fresh status...');
     const next = await fetchStatusAndRedirect();
-    if (next) {
-      goToNextParagraph(next.id, next.number);
+    if (next && next.id !== paragraphId) {
+      setNextParagraphId(next.id);
+      setNextParagraphNumber(next.number);
+      // Retry navigation after a short delay
+      setTimeout(() => {
+        if (next.id && next.number) {
+          goToNextParagraph(next.id, next.number);
+        } else {
+          setShowRetry(true);
+        }
+      }, 300);
     } else {
-      router.push('/tasks/silver');
+      // Still no new paragraph — show retry button
+      setShowRetry(true);
+    }
+  };
+
+  // ✅ Manual retry function
+  const handleRetry = async () => {
+    setShowRetry(false);
+    setRetryCount(prev => prev + 1);
+    toast.info('🔄 Retrying...');
+    
+    const next = await fetchStatusAndRedirect();
+    if (next && next.id !== paragraphId) {
+      setNextParagraphId(next.id);
+      setNextParagraphNumber(next.number);
+      setTimeout(() => {
+        if (next.id && next.number) {
+          goToNextParagraph(next.id, next.number);
+        } else {
+          setShowRetry(true);
+          toast.error('Still unable to load next paragraph. Please try again.');
+        }
+      }, 300);
+    } else {
+      setShowRetry(true);
+      toast.error('Could not load next paragraph. Please try again later.');
     }
   };
 
@@ -413,6 +458,7 @@ export default function SilverParagraphPage() {
                 </span>
               </div>
 
+              {/* ✅ Continue button - enabled after 10s */}
               <button
                 onClick={handleNativeAdComplete}
                 disabled={isAdTimerRunning || isNavigating}
@@ -430,6 +476,17 @@ export default function SilverParagraphPage() {
                       ? '🎉 Claim Reward & Continue' 
                       : '✅ Continue to Next Paragraph'}
               </button>
+
+              {/* ✅ Retry button if navigation fails */}
+              {showRetry && (
+                <button
+                  onClick={handleRetry}
+                  className="w-full py-3 bg-amber-500 text-white rounded-xl font-semibold hover:bg-amber-600 transition-colors flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Retry Loading Next Paragraph
+                </button>
+              )}
             </div>
           )}
         </div>
