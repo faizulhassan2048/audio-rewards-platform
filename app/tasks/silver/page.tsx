@@ -22,6 +22,16 @@ interface StatusResponse {
   } | null;
 }
 
+// ✅ Add Claim Response Interface
+interface ClaimResponse {
+  success?: boolean;
+  alreadyClaimed?: boolean;
+  error?: string;
+  message?: string;
+  coins_added?: number;
+  reward_claimed?: boolean;
+}
+
 const REWARD_COINS = 45;
 const TOTAL_PARAGRAPHS = 15;
 
@@ -82,11 +92,14 @@ export default function SilverLevelPage() {
     router.push('/tasks');
   };
 
+  // ✅ Fixed: Proper typing for claim response
   const handleClaimReward = async () => {
     if (isClaiming) return;
     setIsClaiming(true);
 
     try {
+      console.log('🔍 Claiming reward...');
+      
       const res = await fetch('/api/tasks/silver/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -94,22 +107,46 @@ export default function SilverLevelPage() {
       });
 
       const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
+      console.log('📢 Response text:', text);
+      
+      let data: ClaimResponse = {};
+      try {
+        data = text ? JSON.parse(text) as ClaimResponse : {};
+      } catch (parseError) {
+        console.error('❌ JSON parse error:', parseError);
+        toast.error('Invalid response from server');
+        setIsClaiming(false);
+        return;
+      }
+
+      console.log('📊 Response data:', data);
 
       if (!res.ok) {
-        toast.error(data.error || 'Could not claim reward');
+        toast.error(data?.error || 'Could not claim reward');
         setIsClaiming(false);
         return;
       }
 
       if (data.success || data.alreadyClaimed) {
-        toast.success('🎉 +45 coins added!');
+        toast.success(`🎉 +${REWARD_COINS} coins added!`);
         setShowComplete(false);
+        
+        // ✅ Update status immediately
+        setStatus(prev => prev ? { ...prev, reward_claimed: true } : prev);
+        
+        // ✅ Refresh status
         await fetchStatus();
+        
+        // ✅ Navigate to tasks after delay
+        setTimeout(() => {
+          router.push('/tasks');
+        }, 1000);
+      } else {
+        toast.error(data?.error || 'Could not claim reward');
       }
     } catch (error) {
-      console.error('Claim error:', error);
-      toast.error('Network error');
+      console.error('❌ Claim error:', error);
+      toast.error('Network error. Please try again.');
     } finally {
       setIsClaiming(false);
     }
@@ -281,7 +318,6 @@ export default function SilverLevelPage() {
                   {status?.completed_paragraphs === 0 ? 'Start Level' : 'Continue'}
                 </p>
                 <h3 className="font-bold text-gray-800">
-                  {/* ✅ FIXED: Line 304 error */}
                   Paragraph {((status?.completed_paragraphs ?? 0) + 1)}/{TOTAL_PARAGRAPHS}
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
