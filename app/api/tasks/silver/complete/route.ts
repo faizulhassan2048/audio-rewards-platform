@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
 const LEVEL_NAME = 'silver';
 const TOTAL_PARAGRAPHS = 15;
 
@@ -30,7 +34,7 @@ export async function POST(req: Request) {
 
     const completedIds = level.silver_completed_paragraph_ids || [];
 
-    // ✅ Already completed — return next paragraph
+    // Already completed — return next paragraph
     if (completedIds.includes(paragraph_id)) {
       const { data: paragraphs } = await supabase
         .from('silver_paragraphs')
@@ -68,6 +72,8 @@ export async function POST(req: Request) {
 
     if (isLevelComplete) {
       updatePayload.silver_completed_at = new Date().toISOString();
+      // ✅ Set pending ad milestone for reward claim
+      updatePayload.silver_pending_ad_milestone = 5;
     }
 
     const { error: updateErr } = await supabase

@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
 const LEVEL_NAME = 'silver';
 const TOTAL_PARAGRAPHS = 15;
 
@@ -57,21 +61,45 @@ export async function GET() {
       level = created;
     }
 
-    // Check if complete
+    // ✅ AUTO-RESET: If level complete and reward claimed → reset automatically
     const isComplete = (level.silver_completed_paragraphs || 0) >= TOTAL_PARAGRAPHS;
-
+    
     if (isComplete && level.silver_reward_claimed) {
-      return NextResponse.json({
-        locked: false,
-        level_complete: true,
-        reward_claimed: true,
-        completed_paragraphs: level.silver_completed_paragraphs || 0,
-        total_paragraphs: TOTAL_PARAGRAPHS,
-        current_paragraph: null,
-      });
+      console.log('🔄 Auto-resetting Silver level for user:', user.id);
+      
+      // ✅ Get all paragraph IDs
+      const { data: allParagraphs } = await supabase
+        .from('silver_paragraphs')
+        .select('id')
+        .order('paragraph_number', { ascending: true });
+
+      const allIds = (allParagraphs || []).map(p => p.id);
+
+      // ✅ Reset the level
+      const { data: reset, error: resetErr } = await supabase
+        .from('user_levels')
+        .update({
+          silver_completed_paragraphs: 0,
+          silver_completed_paragraph_ids: [],
+          silver_reward_claimed: false,
+          silver_pending_ad_milestone: null,
+          silver_completed_at: null,
+          audio_ids: allIds, // Reset audio_ids to all paragraphs
+        })
+        .eq('id', level.id)
+        .select('*')
+        .single();
+
+      if (resetErr) {
+        console.error('❌ Reset error:', resetErr);
+        return NextResponse.json({ error: resetErr.message }, { status: 500 });
+      }
+      
+      level = reset;
     }
 
-    if (isComplete) {
+    // If level complete but reward NOT claimed yet
+    if (isComplete && !level.silver_reward_claimed) {
       return NextResponse.json({
         locked: false,
         level_complete: true,
