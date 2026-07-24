@@ -34,15 +34,15 @@ export default function SilverParagraphPage() {
   const [isLevelComplete, setIsLevelComplete] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   
-  // ✅ Timer 10 seconds (changed from 5)
+  // Timer 10 seconds
   const [adTimerSeconds, setAdTimerSeconds] = useState(10);
   const [isAdTimerRunning, setIsAdTimerRunning] = useState(false);
   
-  // ✅ Next paragraph data from API
+  // Next paragraph data from API
   const [nextParagraphId, setNextParagraphId] = useState<string | null>(null);
   const [nextParagraphNumber, setNextParagraphNumber] = useState<number | null>(null);
   
-  // ✅ Retry state
+  // Retry state
   const [showRetry, setShowRetry] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
@@ -89,13 +89,11 @@ export default function SilverParagraphPage() {
       const statusData = statusText ? JSON.parse(statusText) : null;
       
       if (!statusData) {
-        router.push('/tasks/silver');
         return null;
       }
 
       if (statusData.level_complete) {
-        router.push('/tasks/silver?complete=true');
-        return null;
+        return { levelComplete: true };
       }
 
       if (statusData.current_paragraph) {
@@ -118,9 +116,17 @@ export default function SilverParagraphPage() {
     const loadParagraph = async () => {
       try {
         const statusData = await fetchStatusAndRedirect();
-        if (!statusData) return;
+        if (!statusData) {
+          router.push('/tasks/silver');
+          return;
+        }
 
-        // ✅ If wrong paragraph, redirect
+        if (statusData.levelComplete) {
+          router.push('/tasks/silver?complete=true');
+          return;
+        }
+
+        // If wrong paragraph, redirect
         if (statusData.id !== paragraphId) {
           router.replace(`/tasks/silver/${statusData.id}?number=${statusData.number}&total=${totalCount}`);
           return;
@@ -148,6 +154,14 @@ export default function SilverParagraphPage() {
         });
 
         setCompletedCount(number - 1);
+        // Reset states for new paragraph
+        setUserAnswer('');
+        setIsSubmitted(false);
+        setIsCorrect(false);
+        setShowNativeAd(false);
+        setShowRetry(false);
+        setNextParagraphId(null);
+        setNextParagraphNumber(null);
       } catch (error) {
         console.error('Error:', error);
         toast.error('Could not load paragraph');
@@ -195,7 +209,7 @@ export default function SilverParagraphPage() {
       if (data.alreadyCompleted || data.error === 'Already completed') {
         toast.info('⏩ Already completed! Moving to next...');
         const next = await fetchStatusAndRedirect();
-        if (next) {
+        if (next && !next.levelComplete) {
           setNextParagraphId(next.id);
           setNextParagraphNumber(next.number);
           setShowNativeAd(true);
@@ -222,14 +236,14 @@ export default function SilverParagraphPage() {
         return;
       }
 
-      // ✅ Store next paragraph from API
+      // Store next paragraph from API
       if (data.next_paragraph) {
         setNextParagraphId(data.next_paragraph.id);
         setNextParagraphNumber((paragraph.paragraph_number || 0) + 1);
       } else {
         // Fallback: fetch status
         const next = await fetchStatusAndRedirect();
-        if (next) {
+        if (next && !next.levelComplete) {
           setNextParagraphId(next.id);
           setNextParagraphNumber(next.number);
         }
@@ -247,7 +261,7 @@ export default function SilverParagraphPage() {
     }
   };
 
-  // ✅ Handle native ad complete - with retry logic
+  // Handle native ad complete - with retry logic
   const handleNativeAdComplete = async () => {
     if (isAdTimerRunning || isNavigating) return;
     
@@ -258,16 +272,16 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // ✅ Check if we have a valid next paragraph that is DIFFERENT from current
+    // Check if we have a valid next paragraph that is DIFFERENT from current
     if (nextParagraphId && nextParagraphId !== paragraphId && nextParagraphNumber) {
       goToNextParagraph(nextParagraphId, nextParagraphNumber);
       return;
     }
 
-    // ✅ If same or missing, fetch fresh status and retry
+    // If same or missing, fetch fresh status and retry
     console.warn('⚠️ Next paragraph missing or same as current, fetching fresh status...');
     const next = await fetchStatusAndRedirect();
-    if (next && next.id !== paragraphId) {
+    if (next && !next.levelComplete && next.id !== paragraphId) {
       setNextParagraphId(next.id);
       setNextParagraphNumber(next.number);
       // Retry navigation after a short delay
@@ -284,14 +298,14 @@ export default function SilverParagraphPage() {
     }
   };
 
-  // ✅ Manual retry function
+  // Manual retry function
   const handleRetry = async () => {
     setShowRetry(false);
     setRetryCount(prev => prev + 1);
     toast.info('🔄 Retrying...');
     
     const next = await fetchStatusAndRedirect();
-    if (next && next.id !== paragraphId) {
+    if (next && !next.levelComplete && next.id !== paragraphId) {
       setNextParagraphId(next.id);
       setNextParagraphNumber(next.number);
       setTimeout(() => {
@@ -458,7 +472,6 @@ export default function SilverParagraphPage() {
                 </span>
               </div>
 
-              {/* ✅ Continue button - enabled after 10s */}
               <button
                 onClick={handleNativeAdComplete}
                 disabled={isAdTimerRunning || isNavigating}
@@ -477,7 +490,6 @@ export default function SilverParagraphPage() {
                       : '✅ Continue to Next Paragraph'}
               </button>
 
-              {/* ✅ Retry button if navigation fails */}
               {showRetry && (
                 <button
                   onClick={handleRetry}
