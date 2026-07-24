@@ -118,6 +118,25 @@ export default function AudioPlayerPage() {
     };
   }, [audioId]);
 
+  // ✅ NEW: guards against the browser's back-forward cache (bfcache).
+  // Pressing Back after a hard `window.location.replace()` navigation can
+  // restore this exact page from bfcache instead of reloading — with all
+  // its stale React state (old audioComplete/showNativeBanner flags, old
+  // closures) intact. That stale state is what re-triggers a redirect
+  // straight back to the audio you just finished. `pageshow` fires with
+  // `event.persisted === true` only on a bfcache restore, so force a real
+  // reload in that case, which re-runs everything against fresh server
+  // state instead of frozen state.
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        window.location.reload();
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
+
   // Central navigation helper — every hard redirect in this file goes
   // through here so the lock is always set right before navigating and
   // never forgotten on one of the branches.

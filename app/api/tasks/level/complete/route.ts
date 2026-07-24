@@ -123,12 +123,39 @@ export async function POST(req: Request) {
     }
   }
 
-  const { error: updateErr } = await supabase
+  // ✅ FIX: this write MUST go through supabaseAdmin (service role), not
+  // the regular authenticated `supabase` client. If `user_levels` has no
+  // UPDATE policy (or a restrictive one) for authenticated users, the
+  // regular client's update silently matches 0 rows — no error is thrown,
+  // but the DB is never actually changed. Everything downstream (next
+  // audio, ad milestones) still looks correct because it's computed from
+  // in-memory `newCompletedCount`, so the response *looks* successful —
+  // but the next page's /level/status read sees the old completed_audios
+  // and bounces the user straight back to the audio they just finished.
+  // We already scoped `level` to this user's row above, so an admin write
+  // here is safe.
+  const { data: updated, error: updateErr } = await supabaseAdmin
     .from('user_levels')
     .update(updatePayload)
     .eq('id', level.id)
+    .select('id, completed_audios, completed_audio_ids')
+    .single()
 
-  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+  if (updateErr || !updated) {
+    console.error('level/complete: user_levels update failed', updateErr)
+    return NextResponse.json({ error: 'Could not save progress, please try again' }, { status: 500 })
+  }
+
+  // ✅ Defensive: confirm the write actually landed with the value we
+  // expect. If it didn't (e.g. a concurrent request raced us), fail loudly
+  // instead of returning a next_audio that doesn't match reality.
+  if (updated.completed_audios !== newCompletedCount) {
+    console.error(
+      'level/complete: post-update mismatch',
+      { expected: newCompletedCount, got: updated.completed_audios }
+    )
+    return NextResponse.json({ error: 'Could not save progress, please try again' }, { status: 500 })
+  }
 
   // ✅ Mark this session as completed so /api/audio/session never reuses it
   // again for a future request of the same audio_id (it will insert a
@@ -141,7 +168,7 @@ export async function POST(req: Request) {
   let nextAudio = null
   if (!isLevelComplete) {
     const nextAudioId = level.audio_ids[newCompletedCount]
-    const { data: audio } = await supabase
+    const { data: audio } = await supabaseAdmin
       .from('audios')
       .select('id, title, audio_url, thumbnail_url, duration_seconds')
       .eq('id', nextAudioId)
