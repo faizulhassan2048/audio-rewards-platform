@@ -35,6 +35,13 @@ const REWARD_COINS = 45;
 const BONUS_COINS = 10;
 const MILESTONES = [5, 10, 15];
 
+// ✅ NEW: the final-audio ad-verification write can land a moment after
+// level/complete responds (separate request). If claim hits that race and
+// gets 403 "Final ad not completed yet", retry a couple of times with a
+// short delay instead of just failing — this is what was making it take
+// "3-4 tries" before the reward showed up.
+const CLAIM_RETRY_DELAYS_MS = [800, 1500, 2500];
+
 export default function BronzeLevelPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -129,20 +136,54 @@ export default function BronzeLevelPage() {
     return () => clearInterval(interval);
   }, [status?.locked, status?.locked_until, fetchStatus]);
 
-  const claimReward = async () => {
+  const attemptClaim = async (): Promise<{ ok: boolean; retriable: boolean; data: any }> => {
     try {
       const res = await fetch('/api/tasks/level/claim', { method: 'POST' });
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
+
       if (!res.ok) {
-        toast.error(data.error || 'Could not claim your reward');
+        // ✅ "Final ad not completed yet" (403) means the ad-verify write
+        // just hasn't landed yet — that one's worth retrying. Anything
+        // else (level not complete, wallet not found, etc.) is a real
+        // failure, not a timing issue.
+        const retriable = res.status === 403 && data.error === 'Final ad not completed yet';
+        return { ok: false, retriable, data };
+      }
+
+      return { ok: true, retriable: false, data };
+    } catch {
+      return { ok: false, retriable: true, data: { error: 'Network error while claiming reward' } };
+    }
+  };
+
+  const claimReward = async () => {
+    try {
+      let result = await attemptClaim();
+
+      for (let i = 0; !result.ok && result.retriable && i < CLAIM_RETRY_DELAYS_MS.length; i++) {
+        await new Promise((r) => setTimeout(r, CLAIM_RETRY_DELAYS_MS[i]));
+        result = await attemptClaim();
+      }
+
+      if (!result.ok) {
+        toast.error(result.data?.error || 'Could not claim your reward');
         return;
       }
-      if (data.success) {
-        setShowComplete(true);
+
+      // ✅ Keep local state in sync with what the server now has — this
+      // is what was letting a stray re-render fall through to a state
+      // that didn't match reality (reward actually claimed server-side,
+      // but local `status.reward_claimed` still stuck at false).
+      setStatus((prev) => (prev ? { ...prev, reward_claimed: true } : prev));
+
+      // ✅ This was completely missing — claiming succeeded but nothing
+      // ever told the user.
+      if (!result.data?.already_claimed) {
+        toast.success(`🎉 +${REWARD_COINS} coins added to your wallet!`);
       }
-    } catch {
-      toast.error('Network error while claiming reward');
+
+      setShowComplete(true);
     } finally {
       pendingClaimRef.current = false;
     }
@@ -162,10 +203,9 @@ export default function BronzeLevelPage() {
     }
   };
 
-  // ✅ FIXED: No reload, navigate instead
+  // ✅ No reload — navigate instead
   const handleCompleteClose = () => {
     setShowComplete(false);
-    // ✅ Navigate to tasks page instead of reload
     router.push('/tasks');
   };
 
@@ -290,12 +330,15 @@ export default function BronzeLevelPage() {
 
       </div>
 
+      {/* ✅ FIX: no more Date.now() key — that regenerated on every parent
+          re-render, forcing React to unmount+remount this modal each time
+          (wiping isClosing/bonusState/secondsLeft), which looked exactly
+          like the whole thing "reloading" mid-claim. */}
       {showComplete && (
         <LevelCompleteModal
           rewardCoins={REWARD_COINS}
           bonusCoins={BONUS_COINS}
           onClose={handleCompleteClose}
-          key={`complete-${Date.now()}`}
         />
       )}
     </div>

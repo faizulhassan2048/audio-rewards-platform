@@ -85,64 +85,44 @@ export default function AudioPlayerPage() {
   const [pendingNextIndex, setPendingNextIndex] = useState<number>(0);
   const [pendingTotal, setPendingTotal] = useState<number>(15);
   const [pendingLevelComplete, setPendingLevelComplete] = useState(false);
-  // ✅ NEW: real countdown driving the Continue button's disabled state —
-  // ticks down every second and hits 0 on its own, independent of whether
-  // NativeBanner's internal onComplete callback actually fires.
+  
+  // ✅ REAL countdown for Continue button
   const [continueCountdown, setContinueCountdown] = useState(10);
+  const [isNavigatingToNext, setIsNavigatingToNext] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const mountRef = useRef(true);
   const hasNavigatedRef = useRef(false);
-
-  // ✅ NEW: prevents two different navigation calls from firing at once
-  // (e.g. onEnded + a stray click both trying to send us forward).
   const navigationLockRef = useRef(false);
-  // ✅ NEW: cancels the in-flight status/audio fetch if this effect
-  // re-runs or the component unmounts before it resolves.
   const fetchControllerRef = useRef<AbortController | null>(null);
-  // ✅ NEW: always holds the audioId this mounted instance is *for*,
-  // so any async callback can check "am I still relevant?" after an await.
   const currentAudioIdRef = useRef(audioId);
 
-  // Track current audioId + reset per-mount locks, abort any in-flight
-  // fetch on cleanup (covers fast unmounts / StrictMode double-invoke).
+  // Track current audioId + reset per-mount locks
   useEffect(() => {
     currentAudioIdRef.current = audioId;
     navigationLockRef.current = false;
     hasNavigatedRef.current = false;
+    setIsNavigatingToNext(false);
 
     return () => {
       fetchControllerRef.current?.abort();
     };
   }, [audioId]);
 
-  // ✅ NEW: guards against the browser's back-forward cache (bfcache).
-  // Pressing Back after a hard `window.location.replace()` navigation can
-  // restore this exact page from bfcache instead of reloading — with all
-  // its stale React state (old audioComplete/showNativeBanner flags, old
-  // closures) intact. That stale state is what re-triggers a redirect
-  // straight back to the audio you just finished. `pageshow` fires with
-  // `event.persisted === true` only on a bfcache restore, so force a real
-  // reload in that case, which re-runs everything against fresh server
-  // state instead of frozen state.
-  useEffect(() => {
-    const handlePageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) {
-        window.location.reload();
-      }
-    };
-    window.addEventListener('pageshow', handlePageShow);
-    return () => window.removeEventListener('pageshow', handlePageShow);
-  }, []);
-
-  // Central navigation helper — every hard redirect in this file goes
-  // through here so the lock is always set right before navigating and
-  // never forgotten on one of the branches.
+  // ✅ FIX 1: Central navigation helper with CLEAR STATE before navigation
   const hardNavigate = (url: string) => {
-    if (navigationLockRef.current) return;
+    if (navigationLockRef.current || isNavigatingToNext) return;
+    
+    // ✅ CRITICAL: Clear banner state BEFORE navigation
+    setShowNativeBanner(false);
+    setPendingNextAudio(null);
+    setPendingLevelComplete(false);
+    setAudioComplete(false);
+    
     navigationLockRef.current = true;
+    setIsNavigatingToNext(true);
     window.location.replace(url);
   };
 
@@ -219,20 +199,19 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, audioComplete]);
 
-  // Fetch audio — confirms this audio_id is actually current, then loads it.
+  // ✅ FIX 2: fetchAudio - SEQUENTIAL instead of Promise.all
   useEffect(() => {
     const fetchAudio = async () => {
-      // Abort any previous in-flight fetch for this page instance, then
-      // start a fresh controller for this run.
       fetchControllerRef.current?.abort();
       const controller = new AbortController();
       fetchControllerRef.current = controller;
 
+      // ✅ Reset navigation flag on fresh load
+      setIsNavigatingToNext(false);
+
       try {
         const statusData = await safeFetch('/api/tasks/level/status');
 
-        // If audioId changed (new navigation already happened) while this
-        // await was pending, this response is stale — drop it silently.
         if (currentAudioIdRef.current !== audioId) {
           console.log('Ignoring stale status response for', audioId);
           return;
@@ -253,9 +232,22 @@ export default function AudioPlayerPage() {
           return;
         }
 
-        // ✅ Covers "already completed" and "out of order" in one check —
-        // if this audio_id isn't the server's current_audio, redirect hard
-        // to the audio the server actually says is current.
+        // ✅ FIX 3: ONLY redirect if this is a 409/Already Completed scenario
+        // NOT on every page load
+        const isAlreadyCompleted = statusData.completed_audio_ids?.includes(audioId);
+        if (isAlreadyCompleted && statusData.current_audio?.id !== audioId) {
+          if (statusData.current_audio) {
+            const correctIndex = (statusData.completed_audios || 0) + 1;
+            hardNavigate(
+              `/tasks/audio/${statusData.current_audio.id}?index=${correctIndex}&total=${statusData.total_audios || 15}`
+            );
+            return;
+          }
+          hardNavigate('/tasks/bronze');
+          return;
+        }
+
+        // ✅ If wrong audio (but NOT already completed), redirect
         if (statusData.current_audio?.id !== audioId) {
           if (statusData.current_audio) {
             const correctIndex = (statusData.completed_audios || 0) + 1;
@@ -271,40 +263,25 @@ export default function AudioPlayerPage() {
         const index = statusData.completed_audios + 1;
         const total = statusData.total_audios || 15;
 
-        // ✅ Small retry helper — a brand-new audio row (the one we were
-        // just redirected to) can occasionally not be visible yet due to
-        // DB read-replica lag right after level/complete's write. Instead
-        // of showing a dead "Audio not found" screen on the first miss,
-        // retry a couple of times with a short delay.
-        const fetchWithRetry = async (url: string, opts?: RequestInit, attempts = 3) => {
-          for (let i = 0; i < attempts; i++) {
-            const res = await fetch(url, { cache: 'no-store', signal: controller.signal, ...opts });
-            if (res.ok) return res;
-            if (i < attempts - 1) await new Promise((r) => setTimeout(r, 400 * (i + 1)));
-          }
-          return null;
-        };
+        // ✅ FIX 4: Sequential fetch - session first, then audio
+        // Session fetch
+        const sessionRes = await fetch('/api/audio/session', {
+          method: 'POST',
+          cache: 'no-store',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audioId }),
+        });
 
-        const [sessionRes, audioRes] = await Promise.all([
-          fetchWithRetry('/api/audio/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ audioId }),
-          }),
-          fetchWithRetry(`/api/tasks/audio/${audioId}`),
-        ]);
-
-        // Bail out if a newer navigation already happened while we were
-        // waiting on the retries above.
         if (currentAudioIdRef.current !== audioId) {
-          console.log('Ignoring stale audio response for', audioId);
+          console.log('Ignoring stale session response for', audioId);
           return;
         }
 
         let token = null;
         let audioUrl = null;
 
-        if (sessionRes?.ok) {
+        if (sessionRes.ok) {
           const sessionText = await sessionRes.text();
           let sessionData: any = {};
           try {
@@ -317,7 +294,18 @@ export default function AudioPlayerPage() {
           setSessionToken(token);
         }
 
-        if (audioRes?.ok) {
+        // ✅ Audio fetch (now sequential)
+        const audioRes = await fetch(`/api/tasks/audio/${audioId}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+
+        if (currentAudioIdRef.current !== audioId) {
+          console.log('Ignoring stale audio response for', audioId);
+          return;
+        }
+
+        if (audioRes.ok) {
           const audioText = await audioRes.text();
           let data: any = null;
           try {
@@ -344,8 +332,6 @@ export default function AudioPlayerPage() {
         toast.error('Could not load audio');
         hardNavigate('/tasks/bronze');
       } finally {
-        // Only stop the loading spinner if we're still on the audioId
-        // this fetch was actually for.
         if (currentAudioIdRef.current === audioId) {
           setLoading(false);
         }
@@ -368,9 +354,7 @@ export default function AudioPlayerPage() {
     }
   }, [audio]);
 
-  // Full <audio> element cleanup on unmount — releases the network
-  // resource immediately instead of letting the old element keep
-  // buffering in the background during navigation.
+  // Full <audio> element cleanup on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -412,10 +396,8 @@ export default function AudioPlayerPage() {
     };
   }, [isPlaying, sessionToken]);
 
-  // ✅ Called only after the server has verified the milestone ad was
-  // actually watched (via MilestoneAdGate -> /ads/verify).
   const handleMilestoneUnlocked = () => {
-    if (!milestoneGate || navigationLockRef.current) return;
+    if (!milestoneGate || navigationLockRef.current || isNavigatingToNext) return;
 
     const { levelComplete, nextAudio } = milestoneGate;
     setMilestoneGate(null);
@@ -430,40 +412,34 @@ export default function AudioPlayerPage() {
     hardNavigate(`/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${audio?.total || 15}`);
   };
 
-  // ✅ Single place that actually navigates onward — hard navigation
-  // (window.location.replace, not router.push/replace) guarantees a fully
-  // fresh page and a fresh <audio> element every single time, and unlike
-  // window.location.href it doesn't leave the completed-audio page in
-  // browser history (so back button can't land you on it again).
+  // ✅ FIX 5: Updated goToNext with proper state clearing
   const goToNext = (
     nextAudio: NextAudioRef | null,
     nextIndex: number,
     total: number,
     levelComplete: boolean
   ) => {
-    if (hasNavigatedRef.current || navigationLockRef.current) return;
+    if (hasNavigatedRef.current || navigationLockRef.current || isNavigatingToNext) return;
+    
+    // ✅ CRITICAL: Clear ALL banner/audio state BEFORE navigation
+    setShowNativeBanner(false);
+    setPendingNextAudio(null);
+    setPendingLevelComplete(false);
+    setAudioComplete(false);
+    setIsNavigatingToNext(true);
+    
     hasNavigatedRef.current = true;
+    navigationLockRef.current = true;
 
     if (levelComplete || !nextAudio) {
-      hardNavigate('/tasks/bronze?complete=true');
+      window.location.replace('/tasks/bronze?complete=true');
       return;
     }
 
-    hardNavigate(`/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`);
+    window.location.replace(`/tasks/audio/${nextAudio.id}?index=${nextIndex}&total=${total}`);
   };
 
-  // ✅ No automatic navigation anymore — the native banner just displays;
-  // moving to the next audio only happens when the user taps "Continue".
-  // (Previously a safety timer auto-advanced after 6s; removed on request.)
-  useEffect(() => {
-    if (showNativeBanner) {
-      hasNavigatedRef.current = false;
-    }
-  }, [showNativeBanner]);
-
-  // ✅ Countdown that unlocks the Continue button. Starts at 10 the moment
-  // the banner appears, ticks every second, and stops itself at 0 — this
-  // is what was missing before (button was hardcoded disabled forever).
+  // Countdown for Continue button
   useEffect(() => {
     if (!showNativeBanner) {
       setContinueCountdown(10);
@@ -484,18 +460,15 @@ export default function AudioPlayerPage() {
     return () => clearInterval(interval);
   }, [showNativeBanner]);
 
-  // Called only by the manual "Continue" button tap.
   const handleNativeBannerComplete = () => {
     goToNext(pendingNextAudio, pendingNextIndex, pendingTotal, pendingLevelComplete);
   };
 
-  // Passed to NativeBanner's own onComplete — intentionally a no-op so
-  // the banner's internal 10s timer never triggers navigation on its own.
   const handleBannerTimerDone = () => {};
 
   // Handle audio complete
   const handleAudioComplete = async () => {
-    if (isSubmitting || !mountRef.current || hasNavigatedRef.current || navigationLockRef.current) return;
+    if (isSubmitting || !mountRef.current || hasNavigatedRef.current || navigationLockRef.current || isNavigatingToNext) return;
 
     setIsSubmitting(true);
     setAudioComplete(true);
@@ -535,14 +508,9 @@ export default function AudioPlayerPage() {
       console.log('Current:', audioId);
       console.log('Next:', data.next_audio?.id);
 
-      // Any rejection (409 out-of-order/already-completed, ad required,
-      // session mismatch, etc.) — re-check status and hard-redirect to
-      // wherever the server actually says we should be, never leave the
-      // user on a dead screen.
       if (!res.ok) {
-        // Not actually navigating yet, so make sure the lock is clear
-        // before we decide where to send the user.
         navigationLockRef.current = false;
+        setIsNavigatingToNext(false);
 
         if (data.error === 'AD_REQUIRED') {
           toast.info('📢 Complete ad to continue');
@@ -594,9 +562,6 @@ export default function AudioPlayerPage() {
         return;
       }
 
-      // ✅ Every audio (not just milestones) shows the native banner here.
-      // Milestones additionally get MilestoneAdGate (smartlink) — that's
-      // handled separately above via data.show_ad, before this point.
       if (data.next_audio) {
         toast.success(`✅ Audio ${audio?.index || 0}/${total} complete!`);
         console.log('Navigate to next audio');
@@ -615,6 +580,7 @@ export default function AudioPlayerPage() {
       console.error('Error completing audio:', error);
       toast.error('Network error');
       navigationLockRef.current = false;
+      setIsNavigatingToNext(false);
       setIsSubmitting(false);
       setAudioComplete(false);
     }
@@ -715,26 +681,24 @@ export default function AudioPlayerPage() {
             <div className="mb-3">
               <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
               <p className="text-xs text-gray-500 mt-1">
-                {continueCountdown > 0 ? 'Please wait 10 seconds...' : 'Loading next audio...'}
+                {continueCountdown > 0 ? `Please wait ${continueCountdown}s...` : 'Ad complete! Tap Continue'}
               </p>
             </div>
             <NativeBanner
               onComplete={handleBannerTimerDone}
               duration={10}
             />
-            {/* ✅ Continue button — locked for 10s via continueCountdown,
-                then enables itself automatically. */}
             <button
               onClick={handleNativeBannerComplete}
-              disabled={continueCountdown > 0}
+              disabled={continueCountdown > 0 || isNavigatingToNext}
               className="w-full mt-4 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {continueCountdown > 0 ? `Continue (${continueCountdown}s)` : 'Continue'}
+              {isNavigatingToNext ? 'Loading...' : continueCountdown > 0 ? `Continue (${continueCountdown}s)` : 'Continue'}
             </button>
           </div>
         ) : (
           <>
-        <div className="flex items-center justify-between text-sm mb-1.5">
+            <div className="flex items-center justify-between text-sm mb-1.5">
               <span className="text-gray-500">
                 Audio <span className="font-semibold text-gray-700">{audio.index}</span> of <span className="font-semibold text-gray-700">{audio.total}</span>
               </span>
