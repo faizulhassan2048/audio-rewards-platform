@@ -85,6 +85,10 @@ export default function AudioPlayerPage() {
   const [pendingNextIndex, setPendingNextIndex] = useState<number>(0);
   const [pendingTotal, setPendingTotal] = useState<number>(15);
   const [pendingLevelComplete, setPendingLevelComplete] = useState(false);
+  // ✅ NEW: real countdown driving the Continue button's disabled state —
+  // ticks down every second and hits 0 on its own, independent of whether
+  // NativeBanner's internal onComplete callback actually fires.
+  const [continueCountdown, setContinueCountdown] = useState(10);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const heartbeatInterval = useRef<NodeJS.Timeout | null>(null);
@@ -438,6 +442,29 @@ export default function AudioPlayerPage() {
     }
   }, [showNativeBanner]);
 
+  // ✅ Countdown that unlocks the Continue button. Starts at 10 the moment
+  // the banner appears, ticks every second, and stops itself at 0 — this
+  // is what was missing before (button was hardcoded disabled forever).
+  useEffect(() => {
+    if (!showNativeBanner) {
+      setContinueCountdown(10);
+      return;
+    }
+
+    setContinueCountdown(10);
+    const interval = setInterval(() => {
+      setContinueCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showNativeBanner]);
+
   // Called only by the manual "Continue" button tap.
   const handleNativeBannerComplete = () => {
     goToNext(pendingNextAudio, pendingNextIndex, pendingTotal, pendingLevelComplete);
@@ -668,19 +695,22 @@ export default function AudioPlayerPage() {
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-5 text-center">
             <div className="mb-3">
               <p className="text-sm font-semibold text-green-700">✅ Audio Complete!</p>
-              <p className="text-xs text-gray-500 mt-1">Please wait 10 seconds...</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {continueCountdown > 0 ? 'Please wait 10 seconds...' : 'Loading next audio...'}
+              </p>
             </div>
             <NativeBanner
               onComplete={handleBannerTimerDone}
               duration={10}
             />
-            {/* ✅ Continue button - 10 seconds baad enable ho ga */}
+            {/* ✅ Continue button — locked for 10s via continueCountdown,
+                then enables itself automatically. */}
             <button
               onClick={handleNativeBannerComplete}
-              disabled={true}
+              disabled={continueCountdown > 0}
               className="w-full mt-4 py-3 bg-[#6C63FF] text-white rounded-xl font-semibold hover:bg-[#5a52e0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Continue (10s)
+              {continueCountdown > 0 ? `Continue (${continueCountdown}s)` : 'Continue'}
             </button>
           </div>
         ) : (
