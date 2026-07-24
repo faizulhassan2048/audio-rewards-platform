@@ -33,13 +33,10 @@ export default function SilverParagraphPage() {
   const [totalCount, setTotalCount] = useState(15);
   const [isLevelComplete, setIsLevelComplete] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
-  
-  // Timer 10 seconds
   const [adTimerSeconds, setAdTimerSeconds] = useState(10);
   const [isAdTimerRunning, setIsAdTimerRunning] = useState(false);
-  
-  // Retry state
   const [showRetry, setShowRetry] = useState(false);
+  const [apiCompleted, setApiCompleted] = useState(false); // ✅ Track API success
 
   const mountRef = useRef(true);
 
@@ -48,7 +45,6 @@ export default function SilverParagraphPage() {
     if (showNativeAd) {
       setAdTimerSeconds(10);
       setIsAdTimerRunning(true);
-      
       const timer = setInterval(() => {
         setAdTimerSeconds((prev) => {
           if (prev <= 1) {
@@ -59,7 +55,6 @@ export default function SilverParagraphPage() {
           return prev - 1;
         });
       }, 1000);
-      
       return () => clearInterval(timer);
     } else {
       setAdTimerSeconds(10);
@@ -68,7 +63,6 @@ export default function SilverParagraphPage() {
     }
   }, [showNativeAd]);
 
-  // Fetch latest status (used for navigation and retry)
   const fetchLatestStatus = async () => {
     try {
       const res = await fetch('/api/tasks/silver/status', { cache: 'no-store' });
@@ -88,13 +82,10 @@ export default function SilverParagraphPage() {
           router.push('/tasks/silver');
           return;
         }
-
         if (statusData.level_complete) {
           router.push('/tasks/silver?complete=true');
           return;
         }
-
-        // If wrong paragraph, redirect
         if (statusData.current_paragraph?.id !== paragraphId) {
           const next = statusData.current_paragraph;
           if (next) {
@@ -114,27 +105,22 @@ export default function SilverParagraphPage() {
         const res = await fetch(`/api/tasks/silver/paragraph/${paragraphId}`, { cache: 'no-store' });
         const text = await res.text();
         const data = text ? JSON.parse(text) : null;
-
         if (!res.ok || !data) {
           toast.error('Paragraph not found');
           router.push('/tasks/silver');
           return;
         }
 
-        setParagraph({
-          ...data,
-          paragraph_number: number,
-          total: total
-        });
-
+        setParagraph({ ...data, paragraph_number: number, total: total });
         setCompletedCount(number - 1);
-        // Reset all states for new paragraph
+        // Reset all states
         setUserAnswer('');
         setIsSubmitted(false);
         setIsCorrect(false);
         setShowNativeAd(false);
         setShowRetry(false);
         setIsNavigating(false);
+        setApiCompleted(false);
       } catch (error) {
         console.error('Error:', error);
         toast.error('Could not load paragraph');
@@ -143,12 +129,11 @@ export default function SilverParagraphPage() {
         setLoading(false);
       }
     };
-
     loadParagraph();
   }, [paragraphId, router, totalCount]);
 
   const handleSubmit = async () => {
-    if (isSubmitting || isNavigating || !paragraph) return;
+    if (isSubmitting || isNavigating || !paragraph || apiCompleted) return;
     setIsSubmitting(true);
     setIsSubmitted(true);
 
@@ -164,7 +149,7 @@ export default function SilverParagraphPage() {
 
     toast.success('✅ Correct!');
 
-    // ✅ Always show native ad after correct answer (before API call)
+    // ✅ Immediately show ad (so user sees it while API processes)
     setShowNativeAd(true);
 
     try {
@@ -183,31 +168,34 @@ export default function SilverParagraphPage() {
 
       if (!res.ok) {
         toast.error(data.error || 'Could not save progress');
-        // Keep ad showing, user can retry navigation later
         setIsSubmitting(false);
         return;
       }
 
       setCompletedCount(data.completed_paragraphs || paragraph.paragraph_number);
+      setApiCompleted(true); // ✅ API done
 
       if (data.level_complete) {
         setIsLevelComplete(true);
       }
-
-      // If next_paragraph is returned, store it for navigation (optional)
-      // We'll rely on fetchLatestStatus in handleNativeAdComplete anyway
-
     } catch (error) {
       console.error('Error submitting:', error);
       toast.error('Network error, but you can continue');
+      // ✅ Even if API fails, allow navigation (fallback)
+      setApiCompleted(true);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ✅ Reliable navigation: after ad timer ends, fetch fresh status
+  // ✅ Handle ad complete + navigation
   const handleNativeAdComplete = async () => {
     if (isAdTimerRunning || isNavigating) return;
+    if (!apiCompleted) {
+      toast.info('⏳ Saving progress, please wait...');
+      return;
+    }
+
     setIsNavigating(true);
     setShowNativeAd(false);
 
@@ -216,7 +204,7 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // ✅ Wait 300ms for DB commit, then fetch fresh status
+    // Wait for DB commit
     await new Promise(resolve => setTimeout(resolve, 300));
     const status = await fetchLatestStatus();
 
@@ -231,27 +219,22 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // ✅ Get next paragraph from status
     const next = status.current_paragraph;
     if (next && next.id !== paragraphId) {
       const nextNum = (status.completed_paragraphs || 0) + 1;
       router.push(`/tasks/silver/${next.id}?number=${nextNum}&total=${totalCount}`);
     } else {
-      // ❌ No new paragraph – show retry
       setShowRetry(true);
       setIsNavigating(false);
     }
   };
 
-  // ✅ Manual retry
   const handleRetry = async () => {
     setShowRetry(false);
     setIsNavigating(true);
     toast.info('🔄 Retrying...');
-
     await new Promise(resolve => setTimeout(resolve, 300));
     const status = await fetchLatestStatus();
-
     if (status?.current_paragraph && status.current_paragraph.id !== paragraphId) {
       const nextNum = (status.completed_paragraphs || 0) + 1;
       router.push(`/tasks/silver/${status.current_paragraph.id}?number=${nextNum}&total=${totalCount}`);
@@ -400,7 +383,7 @@ export default function SilverParagraphPage() {
                     ? '🎉 Level Complete! Claim your reward!' 
                     : `📢 Paragraph ${paragraph.paragraph_number}/${totalCount} Complete!`}
                 </p>
-                <NativeBanner />
+                <NativeBanner onComplete={() => {}} />
               </div>
 
               <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
@@ -412,11 +395,12 @@ export default function SilverParagraphPage() {
                 </span>
               </div>
 
+              {/* ✅ Main Action Button */}
               <button
                 onClick={handleNativeAdComplete}
-                disabled={isAdTimerRunning || isNavigating}
+                disabled={isAdTimerRunning || isNavigating || !apiCompleted}
                 className={`w-full py-4 px-6 rounded-xl font-bold transition-all ${
-                  isAdTimerRunning || isNavigating
+                  isAdTimerRunning || isNavigating || !apiCompleted
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg hover:scale-[1.02]'
                 }`}
@@ -425,9 +409,11 @@ export default function SilverParagraphPage() {
                   ? `⏳ Wait ${adTimerSeconds}s...` 
                   : isNavigating 
                     ? '⏳ Loading...' 
-                    : isLevelComplete 
-                      ? '🎉 Claim Reward & Continue' 
-                      : '✅ Continue to Next Paragraph'}
+                    : !apiCompleted
+                      ? '⏳ Saving progress...'
+                      : isLevelComplete 
+                        ? '🎉 Claim Reward & Continue' 
+                        : '✅ Continue to Next Paragraph'}
               </button>
 
               {showRetry && (
@@ -441,14 +427,12 @@ export default function SilverParagraphPage() {
               )}
             </div>
           ) : (
-            // ✅ If no native ad (e.g., after refresh), show a manual refresh button
+            // ✅ If ad not shown (e.g., after refresh), show manual trigger
             isSubmitted && isCorrect && !showNativeAd && (
               <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-center">
                 <p className="text-sm text-blue-700">✅ Answer submitted!</p>
                 <button
-                  onClick={() => {
-                    setShowNativeAd(true);
-                  }}
+                  onClick={() => setShowNativeAd(true)}
                   className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
                 >
                   Continue to Ad
