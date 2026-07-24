@@ -36,6 +36,7 @@ export default function SilverParagraphPage() {
   const [adTimerSeconds, setAdTimerSeconds] = useState(10);
   const [isAdTimerRunning, setIsAdTimerRunning] = useState(false);
   const [showRetry, setShowRetry] = useState(false);
+  const [apiCompleted, setApiCompleted] = useState(false); // ✅ track API call success
 
   // Timer for 10 seconds
   useEffect(() => {
@@ -61,14 +62,21 @@ export default function SilverParagraphPage() {
   }, [showNativeAd]);
 
   // Fetch latest status (used for navigation fallback)
-  const fetchLatestStatus = async () => {
-    try {
-      const res = await fetch('/api/tasks/silver/status', { cache: 'no-store' });
-      const text = await res.text();
-      return text ? JSON.parse(text) : null;
-    } catch {
-      return null;
+  const fetchLatestStatus = async (retries = 3): Promise<any> => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const res = await fetch('/api/tasks/silver/status', { cache: 'no-store' });
+        const text = await res.text();
+        if (text) {
+          try { return JSON.parse(text); } catch {}
+        }
+      } catch (e) {
+        console.warn(`Status fetch attempt ${i + 1} failed:`, e);
+      }
+      // Wait before retry (exponential backoff)
+      if (i < retries - 1) await new Promise(r => setTimeout(r, 500 * (i + 1)));
     }
+    return null;
   };
 
   // Load paragraph
@@ -111,13 +119,14 @@ export default function SilverParagraphPage() {
 
         setParagraph({ ...data, paragraph_number: number, total: total });
         setCompletedCount(number - 1);
-        // Reset all states
+        // Reset states for new paragraph
         setUserAnswer('');
         setIsSubmitted(false);
         setIsCorrect(false);
         setShowNativeAd(false);
         setShowRetry(false);
         setIsNavigating(false);
+        setApiCompleted(false);
       } catch (error) {
         console.error('Error:', error);
         toast.error('Could not load paragraph');
@@ -130,7 +139,7 @@ export default function SilverParagraphPage() {
   }, [paragraphId, router, totalCount]);
 
   const handleSubmit = async () => {
-    if (isSubmitting || isNavigating || !paragraph) return;
+    if (isSubmitting || isNavigating || !paragraph || apiCompleted) return;
     setIsSubmitting(true);
     setIsSubmitted(true);
 
@@ -165,24 +174,28 @@ export default function SilverParagraphPage() {
 
       if (!res.ok) {
         toast.error(data.error || 'Could not save progress');
+        // Keep ad showing, user can try again via retry later
         setIsSubmitting(false);
         return;
       }
 
       setCompletedCount(data.completed_paragraphs || paragraph.paragraph_number);
+      setApiCompleted(true); // ✅ API call succeeded
       if (data.level_complete) {
         setIsLevelComplete(true);
       }
     } catch (error) {
       console.error('Error submitting:', error);
       toast.error('Network error, but you can continue');
+      // Even if API fails, we set apiCompleted to true to allow navigation (fallback will fetch status)
+      setApiCompleted(true);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ✅ Core navigation function – used by both Continue and Retry
-  const navigateToNext = async (fromRetry = false) => {
+  // ✅ Core navigation function with retry and fallback
+  const navigateToNext = async () => {
     if (isNavigating) return;
     setIsNavigating(true);
     setShowRetry(false);
@@ -192,14 +205,16 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // Wait a bit for DB to commit
+    // Wait for DB commit
     await new Promise(resolve => setTimeout(resolve, 400));
 
-    const status = await fetchLatestStatus();
+    const status = await fetchLatestStatus(3); // retry up to 3 times
+
     if (!status) {
+      // Network failure – show retry button
       setShowRetry(true);
       setIsNavigating(false);
-      toast.error('Could not reach server. Please retry.');
+      toast.error('Network error. Please retry.');
       return;
     }
 
@@ -213,7 +228,7 @@ export default function SilverParagraphPage() {
       const nextNum = (status.completed_paragraphs || 0) + 1;
       router.replace(`/tasks/silver/${next.id}?number=${nextNum}&total=${totalCount}`);
     } else {
-      // No next paragraph – either all done or error
+      // No next paragraph – check if completed
       if (status.completed_paragraphs >= 15) {
         router.replace('/tasks/silver?complete=true');
       } else {
@@ -226,11 +241,11 @@ export default function SilverParagraphPage() {
 
   const handleContinue = () => {
     if (isAdTimerRunning || isNavigating) return;
-    navigateToNext(false);
+    navigateToNext();
   };
 
   const handleRetry = () => {
-    navigateToNext(true);
+    navigateToNext();
   };
 
   if (loading) {
