@@ -61,13 +61,14 @@ export async function GET() {
       level = created;
     }
 
-    // ✅ AUTO-RESET: If level complete and reward claimed → reset automatically
-    const isComplete = (level.silver_completed_paragraphs || 0) >= TOTAL_PARAGRAPHS;
-    
+    // ✅ Check if complete
+    let isComplete = (level.silver_completed_paragraphs || 0) >= TOTAL_PARAGRAPHS;
+
+    // ✅ If complete and reward claimed → reset (auto-reset)
     if (isComplete && level.silver_reward_claimed) {
       console.log('🔄 Auto-resetting Silver level for user:', user.id);
-      
-      // ✅ Get all paragraph IDs
+
+      // Get all paragraph IDs
       const { data: allParagraphs } = await supabase
         .from('silver_paragraphs')
         .select('id')
@@ -75,7 +76,7 @@ export async function GET() {
 
       const allIds = (allParagraphs || []).map(p => p.id);
 
-      // ✅ Reset the level
+      // Reset the level
       const { data: reset, error: resetErr } = await supabase
         .from('user_levels')
         .update({
@@ -84,7 +85,7 @@ export async function GET() {
           silver_reward_claimed: false,
           silver_pending_ad_milestone: null,
           silver_completed_at: null,
-          audio_ids: allIds, // Reset audio_ids to all paragraphs
+          audio_ids: allIds,
         })
         .eq('id', level.id)
         .select('*')
@@ -94,11 +95,13 @@ export async function GET() {
         console.error('❌ Reset error:', resetErr);
         return NextResponse.json({ error: resetErr.message }, { status: 500 });
       }
-      
+
       level = reset;
+      // ✅ Recalculate isComplete after reset
+      isComplete = false;
     }
 
-    // If level complete but reward NOT claimed yet
+    // ✅ If complete but reward NOT claimed → return completion state (no reset)
     if (isComplete && !level.silver_reward_claimed) {
       return NextResponse.json({
         locked: false,
@@ -110,7 +113,7 @@ export async function GET() {
       });
     }
 
-    // Get current paragraph
+    // ✅ Not complete → get next paragraph
     const completedIds = level.silver_completed_paragraph_ids || [];
     let nextParagraphId = null;
 
