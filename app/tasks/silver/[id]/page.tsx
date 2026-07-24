@@ -188,7 +188,7 @@ export default function SilverParagraphPage() {
     }
   };
 
-  // ✅ Core navigation function with robust auto-retry
+  // ✅ Core navigation function with robust auto-retry (NO TOAST)
   const navigateToNext = async () => {
     if (isNavigating) return;
     setIsNavigating(true);
@@ -199,7 +199,7 @@ export default function SilverParagraphPage() {
       return;
     }
 
-    // Wait longer for DB commit
+    // Wait for DB commit
     await new Promise(resolve => setTimeout(resolve, 800));
 
     // Try up to 5 times with increasing delays
@@ -209,7 +209,7 @@ export default function SilverParagraphPage() {
 
     while (attempt < maxAttempts) {
       attempt++;
-      toast.info(`⏳ Loading next paragraph... (attempt ${attempt}/${maxAttempts})`);
+      // ✅ Toast removed - no notification
 
       try {
         const res = await fetch('/api/tasks/silver/status', { cache: 'no-store' });
